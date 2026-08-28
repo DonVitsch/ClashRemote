@@ -1,0 +1,21 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode / macOS
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+.DS_Store
+
+# Local build artifacts (ship via GitHub Releases)
+dist/
+*.dmg
+
+# Editor / tooling
+.idea/
+.vscode/
+*.swp
+*~
