@@ -2,16 +2,32 @@ import SwiftUI
 
 @main
 struct ClashRemoteApp: App {
-    @State private var state = AppState()
+    @State private var state: AppState
+
+    init() {
+        #if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--render-app-icon"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            WorkspacePreviewRenderer.renderIcon(to: CommandLine.arguments[index + 1])
+            exit(0)
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-previews"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            WorkspacePreviewRenderer.render(to: CommandLine.arguments[index + 1])
+            exit(0)
+        }
+        #endif
+        _state = State(initialValue: AppState())
+    }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Clash Remote") {
             RootView()
                 .environment(state)
                 .frame(minWidth: 980, minHeight: 640)
         }
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 1100, height: 740)
+        .defaultSize(width: 1240, height: 840)
         .commands {
             CommandGroup(replacing: .newItem) {}
         }

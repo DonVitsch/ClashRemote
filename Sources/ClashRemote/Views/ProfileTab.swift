@@ -1,5 +1,21 @@
 import SwiftUI
 
+private enum ProfileCategory: String, CaseIterable, Identifiable {
+    case filters = "节点筛选"
+    case automation = "自动切换"
+    case sources = "订阅收藏"
+    case rules = "分流规则"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .filters: "line.3.horizontal.decrease"
+        case .automation: "arrow.triangle.2.circlepath"
+        case .sources: "link"
+        case .rules: "arrow.triangle.branch"
+        }
+    }
+}
+
 struct ProfileTab: View {
     @Environment(AppState.self) private var state
     @State private var editingSubscription: LocalSubscription?
@@ -9,6 +25,7 @@ struct ProfileTab: View {
     @State private var domain = ""
     @State private var ruleType = "DOMAIN-SUFFIX"
     @State private var ruleProxy = "DIRECT"
+    @State private var category: ProfileCategory = .filters
 
     private func change(_ edit: (inout LocalProfile) -> Void) {
         edit(&state.profile)
@@ -16,232 +33,42 @@ struct ProfileTab: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("本地配置").font(.title2.weight(.semibold))
-                        Text("保存在这台 Mac 上，切换路由器也不会丢。订阅和规则可同步；设备守护设置需重新安装。")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button {
-                        state.syncAllToRouter()
-                    } label: {
-                        Label("同步订阅和规则", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!state.isConnected || state.isBusy)
-                }
-
-                Card(title: "订阅链接", subtitle: "先在这里保存，再同步到当前路由器；删掉本地条目不会删除路由器上的订阅。") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(state.profile.subscriptions) { sub in
-                            HStack {
-                                Toggle(sub.name, isOn: Binding(
-                                    get: { state.profile.subscriptions.first(where: { $0.id == sub.id })?.enabled ?? false },
-                                    set: { enabled in
-                                        change { profile in
-                                            if let index = profile.subscriptions.firstIndex(where: { $0.id == sub.id }) {
-                                                profile.subscriptions[index].enabled = enabled
-                                            }
-                                        }
-                                    }
-                                ))
-                                Text(sub.url).lineLimit(1).truncationMode(.middle)
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Spacer()
-                                Button("编辑") { editingSubscription = sub }
-                                Button(role: .destructive) {
-                                    change { $0.subscriptions.removeAll { $0.id == sub.id } }
-                                } label: { Image(systemName: "trash") }
-                                    .help("删除本地订阅")
-                            }
-                        }
-                        if state.profile.subscriptions.isEmpty {
-                            Text("尚未保存订阅").foregroundStyle(.secondary)
-                        }
-                        Button { addingSubscription = true } label: {
-                            Label("添加订阅", systemImage: "plus")
-                        }
-                        Button("同步订阅") { state.syncSubscriptionsToRouter() }
-                            .disabled(!state.isConnected || state.isBusy || !state.profile.subscriptions.contains(where: \.enabled))
-                    }
-                }
-
-                Card(title: "节点筛选", subtitle: "筛选会立即影响节点列表和本机自动切换；重新安装设备守护后在路由器上生效。") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("排除名称含这些文字的节点").font(.callout.weight(.medium))
-                        editableTokens(state.profile.filterKeywords, remove: { value in
-                            change { $0.filterKeywords.removeAll { $0 == value } }
-                        })
-                        HStack {
-                            TextField("例如 到期", text: $keyword)
-                                .onSubmit(addKeyword)
-                            Button { addKeyword() } label: { Image(systemName: "plus") }
-                                .help("添加排除词")
-                                .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                        Divider()
-                        Text("排除地区").font(.callout.weight(.medium))
-                        ForEach(RegionExclusion.allCases) { region in
-                            Toggle(region.note.isEmpty ? region.label : "\(region.label)（\(region.note)）",
-                                   isOn: Binding(
-                                    get: { state.profile.regionExclusions.contains(region) },
-                                    set: { on in
-                                        change {
-                                            if on { $0.regionExclusions.insert(region) }
-                                            else { $0.regionExclusions.remove(region) }
-                                        }
-                                    }
-                                   ))
-                        }
-                        Divider()
-                        Toggle("只保留指定机场", isOn: Binding(
-                            get: { state.profile.providerWhitelistEnabled },
-                            set: { on in change { $0.providerWhitelistEnabled = on } }
-                        ))
-                        editableTokens(state.profile.providerWhitelist, remove: { value in
-                            change { $0.providerWhitelist.removeAll { $0 == value } }
-                        })
-                        HStack {
-                            TextField("机场名称关键词，例如 乌拉", text: $provider)
-                                .onSubmit(addProvider)
-                            Button { addProvider() } label: { Image(systemName: "plus") }
-                                .help("添加机场关键词")
-                                .disabled(provider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            Button("乌拉 + 渔云") {
-                                change {
-                                    $0.providerWhitelist = ["乌拉", "渔云"]
-                                    $0.providerWhitelistEnabled = true
-                                }
-                            }
-                        }
-                        if state.profile.providerWhitelistEnabled && state.profile.providerWhitelist.isEmpty {
-                            Text("先添加至少一个机场关键词；空列表不会过滤节点。")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                        Button("同步关键词过滤") { state.syncFilterToRouter() }
-                            .disabled(!state.isConnected || state.isBusy)
-                    }
-                }
-
-                Card(title: "黑名单", subtitle: "拉黑的节点完全不参与自动换节点；在「节点」页点卡片右上角的按钮就能拉黑（可整批拉黑一个订阅或机场）。") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if state.blockedCount == 0 {
-                            Text("还没有拉黑任何节点。拉黑后节点会灰掉留在列表里，随时可以在这里解除。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            if !state.profile.blockedKeywords.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("按关键词拉黑（整个订阅 / 机场）")
-                                        .font(.callout.weight(.medium))
-                                    ForEach(state.profile.blockedKeywords, id: \.self) { word in
-                                        HStack {
-                                            Text(word).lineLimit(1)
-                                            Text("匹配 \(state.nodesMatching(keyword: word).count) 个节点")
-                                                .font(.caption).foregroundStyle(.secondary)
-                                            Spacer()
-                                            Button { state.unblockKeyword(word) } label: {
-                                                Label("解除", systemImage: "arrow.uturn.backward")
-                                            }
-                                            .controlSize(.small)
-                                        }
-                                    }
-                                }
-                            }
-                            if !state.profile.blockedNodes.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("按节点名拉黑").font(.callout.weight(.medium))
-                                    ForEach(state.profile.blockedNodes, id: \.self) { name in
-                                        HStack {
-                                            Text(name).lineLimit(1)
-                                            Spacer()
-                                            Button { state.unblockNode(name) } label: {
-                                                Label("解除", systemImage: "arrow.uturn.backward")
-                                            }
-                                            .controlSize(.small)
-                                        }
-                                    }
-                                }
-                            }
-                            HStack(spacing: 10) {
-                                Button("全部解除", role: .destructive) { state.clearBlocklist() }
-                                Button("同步过滤到路由器") { state.syncFilterToRouter() }
-                                    .disabled(!state.isConnected || state.isBusy)
-                                Spacer(minLength: 0)
-                            }
-                            Text("设备守护要重新安装一次才会用上新黑名单。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Card(title: "自动换节点", subtitle: "低于阈值时保持当前节点；超过阈值或超时才查找更快的节点。") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("固定当前节点（只有超时才换）", isOn: Binding(
-                            get: { state.profile.pinnedNode },
-                            set: { state.setPinnedNode($0) }
-                        ))
-                        .help("打开后当前节点延迟再高也不换；只有它真的超时才自动切到可用节点。")
-                        if state.profile.pinnedNode {
-                            Text("固定中：下面的阈值暂时不生效，关掉即恢复。")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                        Stepper(value: Binding(
-                            get: { state.profile.failoverThreshold },
-                            set: { value in change { $0.failoverThreshold = value } }
-                        ), in: 0...500, step: 10) {
-                            Text(state.profile.failoverThreshold == 0
-                                 ? "仅在超时时切换"
-                                 : "延迟阈值：\(state.profile.failoverThreshold) ms")
-                        }
-                        .disabled(state.profile.pinnedNode)
-                        Text("设备守护独立运行；修改筛选、阈值或固定开关后，需在“控制”中重新安装。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-
-                Card(title: "域名分流", subtitle: "规则保存在本机；同步会新增或更新，不会删除路由器上的旧规则。") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(state.profile.domainRules) { rule in
-                            HStack {
-                                Text("\(rule.ruleType),\(rule.domain),\(rule.proxy)")
-                                    .font(.system(.callout, design: .monospaced))
-                                Spacer()
-                                Button(role: .destructive) {
-                                    change { $0.domainRules.removeAll { $0.id == rule.id } }
-                                } label: { Image(systemName: "trash") }
-                                    .help("删除本地规则")
-                            }
-                        }
-                        HStack {
-                            TextField("例如 douyin.com", text: $domain)
-                                .onSubmit(addRule)
-                            Picker("匹配", selection: $ruleType) {
-                                Text("域名后缀").tag("DOMAIN-SUFFIX")
-                                Text("域名关键词").tag("DOMAIN-KEYWORD")
-                            }
-                            .frame(width: 140)
-                            Picker("动作", selection: $ruleProxy) {
-                                Text("直连").tag("DIRECT")
-                                Text("拒绝").tag("REJECT")
-                                Text("代理").tag("GLOBAL")
-                            }
-                            .frame(width: 100)
-                            Button { addRule() } label: { Image(systemName: "plus") }
-                                .help("添加域名规则")
-                                .disabled(cleanDomain.isEmpty)
-                        }
-                        Button("同步到所有路由器") { state.syncDomainRulesToAllRouters() }
-                            .disabled(state.isBusy || state.profile.domainRules.isEmpty || state.devices.isEmpty)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 17) {
+            HStack(spacing: 14) {
+                WorkspaceBanner(symbol: "internaldrive", title: "属于这台 Mac 的配置",
+                                detail: "订阅、筛选和分流规则保存在本机，可在设备之间复用。", color: ClashPalette.amber)
+                Button { state.syncAllToRouter() } label: { Label("同步订阅和规则", systemImage: "arrow.triangle.2.circlepath") }
+                    .buttonStyle(ActionButtonStyle()).controlSize(.large).disabled(!state.isConnected || state.isBusy)
             }
-            .frame(maxWidth: 900)
-            .padding(20)
-            .frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                ForEach(ProfileCategory.allCases) { item in
+                    Button { category = item } label: {
+                        Label(item.rawValue, systemImage: item.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(category == item ? ClashPalette.blue : ClashPalette.muted)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .background(category == item ? ClashPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 11))
+                    }.buttonStyle(.plain).accessibilityAddTraits(category == item ? .isSelected : [])
+                }
+                Spacer(minLength: 0)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch category {
+                    case .sources: sourcesCard
+                    case .filters:
+                        filterCard
+                        blocklistCard
+                    case .automation: automationCard
+                    case .rules: domainCard
+                    }
+                }
+                .padding(.top, 1).padding(.bottom, 15)
+            }
         }
+        .padding(.horizontal, 30).padding(.top, 10).padding(.bottom, 15)
+        .textFieldStyle(.roundedBorder)
+        .buttonStyle(ActionButtonStyle(filled: false))
         .sheet(isPresented: $addingSubscription) {
             LocalSubscriptionEditor(subscription: nil, existingNames: Set(state.profile.subscriptions.map(\.name))) { sub in
                 change { $0.subscriptions.append(sub) }
@@ -257,6 +84,232 @@ struct ProfileTab: View {
                         $0.subscriptions[index] = sub
                     }
                 }
+            }
+        }
+    }
+
+    private var sourcesCard: some View {
+        Card(title: "订阅链接", subtitle: "先在这里保存，再同步到当前路由器；删掉本地条目不会删除路由器上的订阅。", symbol: "link") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(state.profile.subscriptions) { sub in
+                    HStack {
+                        Toggle(sub.name, isOn: Binding(
+                            get: { state.profile.subscriptions.first(where: { $0.id == sub.id })?.enabled ?? false },
+                            set: { enabled in
+                                change { profile in
+                                    if let index = profile.subscriptions.firstIndex(where: { $0.id == sub.id }) {
+                                        profile.subscriptions[index].enabled = enabled
+                                    }
+                                }
+                            }
+                        ))
+                        Text(sub.url).lineLimit(1).truncationMode(.middle)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("编辑") { editingSubscription = sub }
+                        Button(role: .destructive) {
+                            change { $0.subscriptions.removeAll { $0.id == sub.id } }
+                        } label: { Image(systemName: "trash") }
+                            .help("删除本地订阅")
+                    }
+                }
+                if state.profile.subscriptions.isEmpty {
+                    Text("尚未保存订阅").foregroundStyle(.secondary)
+                }
+                Button { addingSubscription = true } label: {
+                    Label("添加订阅", systemImage: "plus")
+                }
+                Button("同步订阅") { state.syncSubscriptionsToRouter() }
+                    .disabled(!state.isConnected || state.isBusy || !state.profile.subscriptions.contains(where: \.enabled))
+            }
+        }
+    }
+
+    private var filterCard: some View {
+        Card(title: "节点筛选", subtitle: "筛选会立即影响节点列表和本机自动切换；重新安装设备守护后在路由器上生效。", symbol: "line.3.horizontal.decrease") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("排除名称含这些文字的节点").font(.callout.weight(.medium))
+                editableTokens(state.profile.filterKeywords, remove: { value in
+                    change { $0.filterKeywords.removeAll { $0 == value } }
+                })
+                HStack {
+                    TextField("例如 到期", text: $keyword)
+                        .onSubmit(addKeyword)
+                    Button { addKeyword() } label: { Image(systemName: "plus") }
+                        .help("添加排除词")
+                        .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                Divider()
+                Text("排除地区").font(.callout.weight(.medium))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 10)], spacing: 10) {
+                    ForEach(RegionExclusion.allCases) { region in
+                        let excluded = state.profile.regionExclusions.contains(region)
+                        Button {
+                            change {
+                                if excluded { $0.regionExclusions.remove(region) }
+                                else { $0.regionExclusions.insert(region) }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: excluded ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(excluded ? ClashPalette.blue : ClashPalette.muted)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(region.label).font(.callout.weight(.medium)).foregroundStyle(ClashPalette.ink)
+                                    if !region.note.isEmpty { Text(region.note).font(.caption2).foregroundStyle(.secondary) }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(11).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+                            .background(excluded ? ClashPalette.blue.opacity(0.07) : ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 11))
+                        }
+                        .buttonStyle(.plain).accessibilityValue(excluded ? "已排除" : "未排除")
+                    }
+                }
+                Divider()
+                Toggle("只保留指定机场", isOn: Binding(
+                    get: { state.profile.providerWhitelistEnabled },
+                    set: { on in change { $0.providerWhitelistEnabled = on } }
+                ))
+                editableTokens(state.profile.providerWhitelist, remove: { value in
+                    change { $0.providerWhitelist.removeAll { $0 == value } }
+                })
+                HStack {
+                    TextField("机场名称关键词，例如 乌拉", text: $provider)
+                        .onSubmit(addProvider)
+                    Button { addProvider() } label: { Image(systemName: "plus") }
+                        .help("添加机场关键词")
+                        .disabled(provider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("乌拉 + 渔云") {
+                        change {
+                            $0.providerWhitelist = ["乌拉", "渔云"]
+                            $0.providerWhitelistEnabled = true
+                        }
+                    }
+                }
+                if state.profile.providerWhitelistEnabled && state.profile.providerWhitelist.isEmpty {
+                    Text("先添加至少一个机场关键词；空列表不会过滤节点。")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Button("同步关键词过滤") { state.syncFilterToRouter() }
+                    .disabled(!state.isConnected || state.isBusy)
+            }
+        }
+    }
+
+    private var blocklistCard: some View {
+        Card(title: "黑名单", subtitle: "拉黑的节点完全不参与自动换节点；在「节点」页点卡片右上角的菜单就能拉黑（可整批拉黑一个订阅或机场）。", symbol: "hand.raised") {
+            VStack(alignment: .leading, spacing: 12) {
+                if state.blockedCount == 0 {
+                    Text("还没有拉黑任何节点。拉黑后节点会灰掉留在列表里，随时可以在这里解除。")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    if !state.profile.blockedKeywords.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("按关键词拉黑（整个订阅 / 机场）")
+                                .font(.callout.weight(.medium))
+                            ForEach(state.profile.blockedKeywords, id: \.self) { word in
+                                HStack {
+                                    Text(word).lineLimit(1)
+                                    Text("匹配 \(state.nodesMatching(keyword: word).count) 个节点")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button { state.unblockKeyword(word) } label: {
+                                        Label("解除", systemImage: "arrow.uturn.backward")
+                                    }
+                                    .controlSize(.small)
+                                }
+                            }
+                        }
+                    }
+                    if !state.profile.blockedNodes.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("按节点名拉黑").font(.callout.weight(.medium))
+                            ForEach(state.profile.blockedNodes, id: \.self) { name in
+                                HStack {
+                                    Text(name).lineLimit(1)
+                                    Spacer()
+                                    Button { state.unblockNode(name) } label: {
+                                        Label("解除", systemImage: "arrow.uturn.backward")
+                                    }
+                                    .controlSize(.small)
+                                }
+                            }
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        Button("全部解除", role: .destructive) { state.clearBlocklist() }
+                        Button("同步过滤到路由器") { state.syncFilterToRouter() }
+                            .disabled(!state.isConnected || state.isBusy)
+                        Spacer(minLength: 0)
+                    }
+                    Text("设备守护要重新安装一次才会用上新黑名单。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var automationCard: some View {
+        Card(title: "自动换节点", subtitle: "低于阈值时保持当前节点；超过阈值或超时才查找更快的节点。", symbol: "arrow.triangle.2.circlepath") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("固定当前节点（只有超时才换）", isOn: Binding(
+                    get: { state.profile.pinnedNode },
+                    set: { state.setPinnedNode($0) }
+                ))
+                .help("打开后当前节点延迟再高也不换；只有它真的超时才自动切到可用节点。")
+                if state.profile.pinnedNode {
+                    Text("固定中：下面的阈值暂时不生效，关掉即恢复。")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Stepper(value: Binding(
+                    get: { state.profile.failoverThreshold },
+                    set: { value in change { $0.failoverThreshold = value } }
+                ), in: 0...500, step: 10) {
+                    Text(state.profile.failoverThreshold == 0
+                         ? "仅在超时时切换"
+                         : "延迟阈值：\(state.profile.failoverThreshold) ms")
+                }
+                .disabled(state.profile.pinnedNode)
+                Text("设备守护独立运行；修改筛选、阈值或固定开关后，需在“设备控制”中重新安装。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var domainCard: some View {
+        Card(title: "域名分流", subtitle: "规则保存在本机；同步会新增或更新，不会删除路由器上的旧规则。", symbol: "arrow.triangle.branch") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(state.profile.domainRules) { rule in
+                    HStack {
+                        Text("\(rule.ruleType),\(rule.domain),\(rule.proxy)")
+                            .font(.system(.callout, design: .monospaced))
+                        Spacer()
+                        Button(role: .destructive) {
+                            change { $0.domainRules.removeAll { $0.id == rule.id } }
+                        } label: { Image(systemName: "trash") }
+                            .help("删除本地规则")
+                    }
+                }
+                HStack {
+                    TextField("例如 douyin.com", text: $domain)
+                        .onSubmit(addRule)
+                    Picker("匹配", selection: $ruleType) {
+                        Text("域名后缀").tag("DOMAIN-SUFFIX")
+                        Text("域名关键词").tag("DOMAIN-KEYWORD")
+                    }
+                    .frame(width: 140)
+                    Picker("动作", selection: $ruleProxy) {
+                        Text("直连").tag("DIRECT")
+                        Text("拒绝").tag("REJECT")
+                        Text("代理").tag("GLOBAL")
+                    }
+                    .frame(width: 100)
+                    Button { addRule() } label: { Image(systemName: "plus") }
+                        .help("添加域名规则")
+                        .disabled(cleanDomain.isEmpty)
+                }
+                Button("同步到所有路由器") { state.syncDomainRulesToAllRouters() }
+                    .disabled(state.isBusy || state.profile.domainRules.isEmpty || state.devices.isEmpty)
             }
         }
     }
@@ -309,7 +362,7 @@ private struct FlowTokens: View {
                             .help("删除 \(value)")
                     }
                     .padding(7)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .background(ClashPalette.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
                 }
             }
         }
@@ -338,15 +391,13 @@ private struct LocalSubscriptionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(subscription == nil ? "添加本地订阅" : "编辑本地订阅")
-                .font(.title2.weight(.semibold))
-            Form {
-                TextField("名称", text: $name)
-                TextField("订阅链接", text: $url, axis: .vertical).lineLimit(2...4)
-                TextField("User-Agent", text: $userAgent)
-                Toggle("启用", isOn: $enabled)
-            }
-            .formStyle(.grouped)
+            WorkspaceBanner(symbol: "link", title: subscription == nil ? "收藏订阅" : "编辑订阅收藏", detail: "先保存到本机，再同步到需要的路由器。", color: ClashPalette.amber)
+            VStack(alignment: .leading, spacing: 17) {
+                EditorField(title: "收藏名称", symbol: "tag") { TextField("例如 常用订阅", text: $name) }
+                EditorField(title: "订阅链接", symbol: "link") { TextField("https://…", text: $url, axis: .vertical).lineLimit(3...5) }
+                EditorField(title: "User-Agent", symbol: "text.alignleft") { TextField("clash.meta", text: $userAgent) }
+                Toggle("启用这个订阅", isOn: $enabled).toggleStyle(.switch).controlSize(.small)
+            }.padding(20).panelSurface()
             if existingNames.contains(name.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 Text("已存在同名订阅，请使用不同名称。")
                     .font(.caption)
@@ -365,6 +416,7 @@ private struct LocalSubscriptionEditor: View {
                     ))
                     dismiss()
                 }
+                .buttonStyle(ActionButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           || existingNames.contains(name.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -373,6 +425,10 @@ private struct LocalSubscriptionEditor: View {
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 560)
+        .background(ClashPalette.canvas)
+        .tint(ClashPalette.blue)
+        .foregroundStyle(ClashPalette.ink)
+        .buttonStyle(ActionButtonStyle(filled: false))
     }
 }

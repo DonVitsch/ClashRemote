@@ -8,6 +8,10 @@
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?style=flat-square)
 ![License MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 
+![Clash Remote 总览](docs/screenshots/overview.png)
+
+*新版界面预览，使用示例设备与节点数据。*
+
 ---
 
 ## 它解决什么
@@ -25,10 +29,12 @@ Clash Remote 把这些动作收进一个本机 App：记住多台设备，点一
 | 分区 | 能力 |
 |------|------|
 | **设备** | 多台路由器侧边栏，本地记住登录信息，一键切换 |
-| **控制** | 启动 / 停止 / 重启；规则 · 全局 · 直连；增强 / TUN / Mix；绕过大陆、域名嗅探等开关 |
+| **总览** | 图形化连接路径，实时流量、连接与内存，一键切换规则 · 全局 · 直连 |
+| **设备控制** | 启动 / 停止 / 重启，增强 / TUN / Mix，网络选项、配置文件与设备守护 |
 | **订阅** | 列出、添加、编辑、删除、更新订阅 |
-| **节点** | 分组卡片墙（GLOBAL / 地区组），延迟色标，整组测速，点选切换 |
-| **规则** | 快速写入域名直连等常用规则并重启生效 |
+| **节点** | 地区卡片、搜索筛选、延迟排序与信号标识，批量测速，点选切换和黑名单菜单 |
+| **规则** | 域名匹配检查，快速写入分流规则，查看设备当前规则 |
+| **本地配置** | 节点筛选、自动切换、订阅收藏与域名规则，保存在 Mac 上并按需同步 |
 
 ### 已适配插件
 
@@ -71,7 +77,7 @@ cd ClashRemote
 1. 启动 App，侧边栏点 **+** 添加设备  
 2. 填写名称、地址、账号密码，选择插件（OpenClash 或猫猫）  
 3. 选中设备后自动连接；顶部可看上下行与连接数  
-4. 在 **控制 / 订阅 / 节点 / 规则** 四个分区完成日常操作  
+4. 从侧栏进入 **总览 / 节点 / 订阅 / 规则 / 设备控制 / 本地配置**；日常切模式在总览，核心和守护设置在设备控制
 
 设备保存在：
 
@@ -108,8 +114,29 @@ ClashRemote/
     ├── Models/        设备、模式、节点等模型
     ├── Network/       OpenClash / 猫猫 / 直连 HTTP
     ├── Store/         设备持久化
-    └── Views/         侧边栏、仪表盘、节点墙
+    └── Views/         设计组件、工作区导航、总览与节点卡片
 ```
+
+## 界面开发
+
+界面支持系统深浅色外观。图案、连接示意、状态色和应用标志均由原生 SwiftUI 绘制。
+
+开发构建可以使用示例数据离屏导出页面，无需连接路由器：
+
+```bash
+swift run ClashRemote --render-previews /tmp/clashremote-previews
+```
+
+应用图标由同一套原生图形生成：
+
+```bash
+swift run ClashRemote --render-app-icon AppIcon.iconset
+iconutil -c icns AppIcon.iconset -o AppIcon.icns
+```
+
+这些入口仅存在于 Debug 构建。示例数据不会写入设备列表或本地配置。
+
+![Clash Remote 节点库](docs/screenshots/nodes.png)
 
 ## 安全与隐私
 

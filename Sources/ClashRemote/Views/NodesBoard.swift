@@ -13,49 +13,40 @@ struct NodesBoard: View {
     @Environment(AppState.self) private var state
     @State private var selectedGroup = ""
     @State private var searchText = ""
+    @State private var regionFilter: NodeRegion?
+    @State private var sortByDelay = false
     @State private var showFailoverHistory = false
     @State private var blockRequest: BlockRequest?
     let onOpenProfile: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            if state.snapshot.groups.isEmpty {
-                ContentUnavailableView(
-                    state.isConnected ? "没有节点" : "还没连上路由器",
-                    systemImage: "point.3.filled.connected.trianglepath.dotted",
-                    description: Text(state.isConnected ? "核心没开，或者 Clash API 连不上。" : "先在左侧选一台路由器。")
-                )
+        VStack(spacing: 14) {
+            if !state.isConnected || state.snapshot.groups.isEmpty {
+                WorkspaceEmptyState(symbol: "point.3.connected.trianglepath.dotted",
+                                    title: state.isConnected ? "暂无可用节点" : "先连接你的路由器",
+                                    detail: state.isConnected ? "检查代理核心是否运行，或更新订阅获取节点。" : "从左侧选择一台路由器，连接后即可浏览和测速。")
+                    .frame(maxHeight: .infinity)
+            } else if state.snapshot.status.ruleMode == .direct {
+                VStack(spacing: 0) {
+                    WorkspaceEmptyState(symbol: "arrow.right", title: "当前使用直连模式", detail: "切换到规则模式，即可挑选代理节点。")
+                    Button { state.setRuleMode(.rule) } label: { Label("切换到规则模式", systemImage: "arrow.triangle.branch") }
+                        .buttonStyle(ActionButtonStyle()).controlSize(.large).disabled(state.isBusy)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                if state.snapshot.status.ruleMode == .direct {
-                    ContentUnavailableView(
-                        "直连模式",
-                        systemImage: "arrow.right.circle",
-                        description: Text("当前全部直连，不走代理节点。切到「规则」后再选节点。")
-                    )
-                } else {
-                    activeNodeBar
-                    if state.deviceFailover.installed || state.selectedDevice?.plugin == .maomao {
-                        deviceGuardBar
-                    }
-                    nodeBar
-                    if state.blockedCount > 0 {
-                        blockedBar
-                    }
-                    Divider()
-                    nodeGrid
+                activeNodeBar
+                if state.deviceFailover.installed || state.selectedDevice?.plugin == .maomao {
+                    deviceGuardBar
                 }
+                nodeBar
+                if state.blockedCount > 0 { blockedBar }
+                nodeGrid
             }
         }
-        .sheet(item: $blockRequest) { request in
-            BlockNodeSheet(request: request)
-        }
+        .padding(.horizontal, 30).padding(.top, 10).padding(.bottom, 20)
+        .sheet(item: $blockRequest) { request in BlockNodeSheet(request: request) }
         .onAppear { ensureGroup() }
-        .onChange(of: state.snapshot.groups.map(\.name)) { _, _ in
-            ensureGroup()
-        }
-        .onChange(of: state.snapshot.status.ruleMode) { _, _ in
-            ensureGroup()
-        }
+        .onChange(of: state.snapshot.groups.map(\.name)) { _, _ in ensureGroup() }
+        .onChange(of: state.snapshot.status.ruleMode) { _, _ in ensureGroup() }
     }
 
     private var displayGroups: [DisplayGroup] {
@@ -72,90 +63,47 @@ struct NodesBoard: View {
 
     private var activeNodeBar: some View {
         let active = state.activeNode
-        let leaf = active?.leafName ?? "—"
-        let delay = active.map { state.delay(for: $0.leafName) } ?? nil
+        let leaf = active?.leafName ?? "尚未选择节点"
+        let delay = active.flatMap { state.delay(for: $0.leafName) }
         let testing = active.map { state.testingNodes.contains($0.leafName) } ?? false
-        let canPing = active != nil && leaf != "—" && leaf != "DIRECT" && !testing
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("当前节点")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(leaf)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
-                        .help(active?.displayPath ?? leaf)
+        let canPing = active != nil && leaf != "DIRECT" && !testing
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                GlyphBadge(symbol: "globe.asia.australia", color: ClashPalette.cyan, size: 46)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("ACTIVE ROUTE").font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1.5).foregroundStyle(ClashPalette.blue)
+                    Text(leaf).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(ClashPalette.ink).lineLimit(1).help(active?.displayPath ?? leaf)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
                 if testing {
-                    Text("测速中").foregroundStyle(.secondary)
+                    ProgressView().controlSize(.small)
                 } else if let delay {
-                    Text(delay < 0 ? "超时" : "\(delay) ms")
-                        .foregroundStyle(delay < 0 ? .red : delayColor(delay))
+                    Text(delay < 0 ? "超时" : "\(delay) ms").font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit()).foregroundStyle(delay < 0 ? .red : delayColor(delay))
                 }
-                if state.pinnedNode {
-                    Label("已固定", systemImage: "pin.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.orange)
-                        .help("已固定当前节点：延迟再高也不换，只有超时才自动换。")
-                }
+                Button { if canPing { state.ping(leaf, failoverOnTimeout: true) } } label: { Label("测速", systemImage: "speedometer") }
+                    .buttonStyle(ActionButtonStyle(filled: false)).disabled(!canPing)
             }
-            HStack(spacing: 12) {
-                Toggle("自动换节点", isOn: Binding(
-                    get: { state.autoFailoverEnabled },
-                    set: { state.autoFailoverEnabled = $0 }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .fixedSize()
-                .help("按间隔检测当前节点；超过本地配置中的阈值时寻找更快的可用节点。")
-
-                Toggle("固定当前节点", isOn: Binding(
-                    get: { state.pinnedNode },
-                    set: { state.setPinnedNode($0) }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .fixedSize()
-                .help("打开后不再因为「慢」而换节点，只有当前节点超时才自动换。设备守护要重新安装一次才用得上。")
-
+            Divider()
+            HStack(spacing: 15) {
+                Toggle("自动换节点", isOn: Binding(get: { state.autoFailoverEnabled }, set: { state.autoFailoverEnabled = $0 }))
+                    .toggleStyle(.switch).controlSize(.small).fixedSize()
+                    .help("按间隔检查当前节点，超过阈值时寻找更快的节点")
+                Toggle("固定当前节点", isOn: Binding(get: { state.pinnedNode }, set: { state.setPinnedNode($0) }))
+                    .toggleStyle(.switch).controlSize(.small).fixedSize()
+                    .help("只在当前节点超时时自动切换")
+                Spacer(minLength: 0)
                 Menu {
                     ForEach(AppState.failoverIntervals, id: \.self) { seconds in
-                        Button(AppState.failoverIntervalTitle(seconds)) {
-                            state.autoFailoverInterval = seconds
-                        }
+                        Button(AppState.failoverIntervalTitle(seconds)) { state.autoFailoverInterval = seconds }
                     }
-                } label: {
-                    Text("每 \(AppState.failoverIntervalTitle(state.autoFailoverInterval))")
-                }
-                .disabled(!state.autoFailoverEnabled)
-                .controlSize(.small)
-
-                Spacer(minLength: 0)
-                Button {
-                    showFailoverHistory = true
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .help("自动换节点历史")
-                .sheet(isPresented: $showFailoverHistory) {
-                    FailoverHistorySheet()
-                }
-                Button {
-                    guard canPing else { return }
-                    state.ping(leaf, failoverOnTimeout: true)
-                } label: {
-                    Image(systemName: "gauge.with.dots.needle.67percent")
-                }
-                .help("测试当前节点；超时或明显偏慢时会立刻换到可用节点。")
-                .disabled(!canPing)
-            }
+                } label: { Text("每 \(AppState.failoverIntervalTitle(state.autoFailoverInterval))检测") }
+                    .disabled(!state.autoFailoverEnabled).controlSize(.small)
+                Button { showFailoverHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .help("切换历史").buttonStyle(ActionButtonStyle(filled: false))
+                    .sheet(isPresented: $showFailoverHistory) { FailoverHistorySheet() }
+            }.font(.caption)
         }
-        .font(.callout)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(20).panelSurface()
     }
 
     private var deviceGuardBar: some View {
@@ -180,37 +128,52 @@ struct NodesBoard: View {
             .help("让设备立即测试当前节点")
         }
         .font(.caption)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 7)
-        .background(st.isLive ? Color.green.opacity(0.06) : Color.orange.opacity(0.06))
+        .padding(.horizontal, 15)
+        .padding(.vertical, 10)
+        .background(st.isLive ? ClashPalette.green.opacity(0.07) : ClashPalette.amber.opacity(0.07), in: RoundedRectangle(cornerRadius: 11))
     }
 
     private var nodeBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("可选节点")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text("节点库").font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(ClashPalette.ink)
                 if let current {
-                    Text(searchText.isEmpty ? "\(current.nodes.count) 个" : "\(visibleNodes(in: current).count) / \(current.nodes.count) 个")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("\(visibleNodes(in: current).count) / \(current.nodes.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                Spacer(minLength: 0)
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索节点名称", text: $searchText).textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain)
+                    }
+                }.font(.callout).padding(9).frame(maxWidth: 235).background(ClashPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                Button {
+                    if let current { state.pingGroup(visibleNodes(in: current).map(\.name)) }
+                } label: { Label(state.pingingAll ? "测速中" : "批量测速", systemImage: "speedometer") }
+                    .buttonStyle(ActionButtonStyle()).disabled(state.pingingAll || current.map { visibleNodes(in: $0).isEmpty } != false)
             }
-            Spacer(minLength: 0)
-            TextField("搜索节点", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 130, maxWidth: 240)
-            Button {
-                if let current {
-                    state.pingGroup(current.nodes.map(\.name))
-                }
-            } label: {
-                Label(state.pingingAll ? "测试中" : "全部测速", systemImage: "speedometer")
+            HStack(spacing: 7) {
+                regionButton(nil, title: "全部地区")
+                regionButton(.hongkong, title: "香港")
+                regionButton(.singapore, title: "新加坡")
+                regionButton(.other, title: "其它地区")
+                Spacer()
+                Toggle("按延迟排序", isOn: $sortByDelay).toggleStyle(.checkbox).font(.caption).foregroundStyle(.secondary)
+                Button { onOpenProfile() } label: { Label("筛选设置", systemImage: "line.3.horizontal.decrease") }
+                    .buttonStyle(ActionButtonStyle(filled: false)).controlSize(.small)
             }
-            .disabled(state.pingingAll || current?.nodes.isEmpty != false)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.top, 3)
+    }
+
+    private func regionButton(_ region: NodeRegion?, title: String) -> some View {
+        Button { regionFilter = region } label: {
+            Text(title).font(.system(size: 11, weight: regionFilter == region ? .semibold : .medium))
+                .foregroundStyle(regionFilter == region ? ClashPalette.blue : ClashPalette.muted)
+                .padding(.horizontal, 11).padding(.vertical, 7)
+                .background(regionFilter == region ? ClashPalette.blue.opacity(0.10) : ClashPalette.surface, in: Capsule())
+        }.buttonStyle(.plain).accessibilityAddTraits(regionFilter == region ? .isSelected : [])
     }
 
     private var blockedBar: some View {
@@ -225,9 +188,9 @@ struct NodesBoard: View {
                 .controlSize(.small)
         }
         .font(.caption)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 6)
-        .background(Color.orange.opacity(0.08))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(ClashPalette.amber.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
     }
 
     private func choose(_ node: ProxyItem, in board: DisplayGroup) {
@@ -266,8 +229,8 @@ struct NodesBoard: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 210, maximum: 400), spacing: 8)],
-                                    spacing: 8
+                                    columns: [GridItem(.adaptive(minimum: 220, maximum: 420), spacing: 12)],
+                                    spacing: 12
                                 ) {
                                     ForEach(section.nodes) { node in
                                         NodeCard(
@@ -275,7 +238,7 @@ struct NodesBoard: View {
                                             selected: isSelected(node, in: current),
                                             delay: state.delay(for: node.name),
                                             testing: state.testingNodes.contains(node.name),
-                                            enabled: current.selectable,
+                                            enabled: current.selectable && state.isConnected && !state.isBusy,
                                             blocked: state.isBlocked(node.name),
                                             action: {
                                                 choose(node, in: current)
@@ -292,18 +255,34 @@ struct NodesBoard: View {
                             }
                         }
                     }
-                    .padding(20)
+                    .padding(.vertical, 4)
                 }
             }
         }
     }
 
     private func visibleNodes(in board: DisplayGroup) -> [ProxyItem] {
-        guard !searchText.isEmpty else { return board.nodes }
-        return board.nodes.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var nodes = board.nodes.filter {
+            (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
+            && (regionFilter == nil || NodeRegion.of($0.name) == regionFilter)
+        }
+        if sortByDelay {
+            let delays = Dictionary(uniqueKeysWithValues: nodes.map { ($0.name, state.delay(for: $0.name) ?? -1) })
+            nodes.sort { lhs, rhs in
+                func rank(_ node: ProxyItem) -> Int {
+                    guard let delay = delays[node.name], delay >= 0 else { return Int.max }
+                    return delay
+                }
+                let l = rank(lhs), r = rank(rhs)
+                return l == r ? lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending : l < r
+            }
+        }
+        return nodes
     }
 
     private func sections(for proxies: [ProxyItem]) -> [(id: String, title: String?, nodes: [ProxyItem])] {
+        if sortByDelay { return [("sorted", nil, proxies)] }
         let hk = proxies.filter { NodeRegion.of($0.name) == .hongkong }
         let sg = proxies.filter { NodeRegion.of($0.name) == .singapore }
         let rest = proxies.filter { NodeRegion.of($0.name) == .other }
@@ -353,6 +332,10 @@ struct NodesBoard: View {
 }
 
 enum NodeBoardLayout {
+    static func visibleNodeCount(from groups: [ProxyGroup], mode: RuleMode, profile: LocalProfile) -> Int {
+        Set(build(from: groups, mode: mode, profile: profile).flatMap { $0.nodes.map(\.name) }).count
+    }
+
     private static let hiddenNames: Set<String> = [
         "DIRECT", "REJECT", "PASS", "COMPATIBLE", "Reject", "Direct", "MATCH", "REJECT-DROP"
     ]
@@ -479,78 +462,76 @@ private struct NodeCard: View {
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(node.name)
-                        .font(.callout.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(blocked ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                        .strikethrough(blocked, color: .secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 6) {
-                        delayLabel
-                        if selected {
-                            Text("当前")
-                                .foregroundStyle(.tint)
-                        }
-                        if blocked {
-                            Label("已拉黑", systemImage: "hand.raised.fill")
-                                .foregroundStyle(.orange)
-                        }
+        ZStack(alignment: .topTrailing) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 15) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(regionCode)
+                            .font(.system(size: 11, weight: .black, design: .rounded))
+                            .foregroundStyle(selected ? ClashPalette.blue : ClashPalette.muted)
+                            .frame(width: 35, height: 35)
+                            .background(selected ? ClashPalette.blue.opacity(0.1) : ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 10))
+                        Text(node.name)
+                            .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                            .foregroundStyle(blocked ? ClashPalette.muted : ClashPalette.ink)
+                            .strikethrough(blocked, color: .secondary).lineLimit(2).multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+                        Color.clear.frame(width: 17, height: 17)
                     }
-                    .font(.caption.monospacedDigit())
+                    HStack(spacing: 7) {
+                        signalBars
+                        delayLabel
+                        Spacer(minLength: 0)
+                        if selected {
+                            Label("当前", systemImage: "checkmark.circle.fill").foregroundStyle(ClashPalette.blue)
+                        } else if blocked {
+                            Label("已拉黑", systemImage: "hand.raised.fill").foregroundStyle(ClashPalette.amber)
+                        } else {
+                            Text(node.typeLabel).foregroundStyle(.tertiary)
+                        }
+                    }.font(.system(size: 9, weight: .medium, design: .rounded).monospacedDigit())
                 }
-                trailingMark
+                .padding(15).frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
+                .background(selected ? ClashPalette.blue.opacity(0.065) : ClashPalette.surface, in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).stroke(selected ? ClashPalette.blue.opacity(0.65) : (hovering ? ClashPalette.blue.opacity(0.3) : ClashPalette.border), lineWidth: selected ? 1.5 : 1))
+                .shadow(color: .black.opacity(hovering ? 0.05 : 0.02), radius: hovering ? 10 : 4, x: 0, y: 3)
+                .opacity(blocked ? 0.65 : 1)
             }
-            .padding(11)
-            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(selected ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.09), lineWidth: 1)
-            )
-            .opacity(enabled ? (blocked ? 0.7 : 1) : 0.55)
+            .buttonStyle(.plain).disabled(!enabled).help(helpText)
+            .accessibilityLabel("\(node.name)，\(blocked ? "已拉黑" : selected ? "当前节点" : "选择节点")")
+            Menu { menuItems } label: { Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 19).padding(13)
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
         .onHover { hovering = $0 }
         .contextMenu { menuItems }
-        .help(helpText)
-        .accessibilityLabel("\(node.name)，\(blocked ? "已拉黑" : selected ? "当前节点" : "选择节点")")
+    }
+
+    private var regionCode: String {
+        let name = node.name.lowercased()
+        if NodeRegion.of(node.name) == .hongkong { return "HK" }
+        if NodeRegion.of(node.name) == .singapore { return "SG" }
+        if name.contains("日本") || name.contains("🇯🇵") || name.contains("japan") { return "JP" }
+        if name.contains("美国") || name.contains("🇺🇸") || name.contains("united states") { return "US" }
+        if name.contains("台湾") || name.contains("🇹🇼") || name.contains("taiwan") { return "TW" }
+        if name.contains("韩国") || name.contains("🇰🇷") || name.contains("korea") { return "KR" }
+        if name.contains("英国") || name.contains("🇬🇧") { return "UK" }
+        return "GL"
+    }
+
+    private var signalBars: some View {
+        let strength = delay.map { $0 < 0 ? 0 : ($0 < 400 ? 4 : ($0 < 1500 ? 3 : 1)) } ?? 0
+        return HStack(alignment: .bottom, spacing: 2) {
+            ForEach(0..<4) { index in
+                RoundedRectangle(cornerRadius: 1).fill(index < strength ? delayColor(delay ?? 0) : ClashPalette.border)
+                    .frame(width: 3, height: CGFloat(4 + index * 3))
+            }
+        }.accessibilityHidden(true)
     }
 
     private var helpText: String {
         if !enabled { return "当前组不可手动选择" }
         if blocked { return "已在黑名单：自动换节点不会选它，仍可手动使用" }
-        return "点击切换到这个节点；右上角按钮可拉黑"
-    }
-
-    @ViewBuilder
-    private var trailingMark: some View {
-        VStack(spacing: 6) {
-            if let onBlock {
-                Button(action: onBlock) {
-                    Image(systemName: blocked ? "hand.raised.fill" : "hand.raised.slash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(blocked ? Color.orange : Color.secondary)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // 常显一点点，鼠标移上去才完全亮起来 —— 不然这个入口太容易被忽略。
-                .opacity(blocked ? 1 : (hovering ? 1 : 0.25))
-                .help(blocked ? "已拉黑 —— 点击可解除或调整范围" : "拉黑：自动换节点时不会选它")
-            }
-            if selected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
-            }
-        }
+        return "点击切换到这个节点；右上角菜单可管理黑名单"
     }
 
     @ViewBuilder
@@ -598,41 +579,41 @@ private struct FailoverHistorySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List {
+        VStack(alignment: .leading, spacing: 17) {
+            WorkspaceBanner(symbol: "clock.arrow.circlepath", title: "节点切换历史", detail: "查看本机和设备守护的自动切换记录。", color: ClashPalette.cyan)
+            ScrollView {
                 if state.displayedFailoverHistory.isEmpty {
-                    Text("还没有自动切换记录。节点超时被换掉之后会出现在这里。")
-                        .foregroundStyle(.secondary)
+                    WorkspaceEmptyState(symbol: "clock", title: "还没有切换记录", detail: "自动切换节点后，来源和耗时会记录在这里。")
                 } else {
-                    ForEach(state.displayedFailoverHistory) { event in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(event.at.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(event.from)  →  \(event.to)")
-                                .font(.body.weight(.medium))
-                                .textSelection(.enabled)
-                            Text("\(event.delay) ms · \(event.source)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    LazyVStack(spacing: 11) {
+                        ForEach(state.displayedFailoverHistory) { event in
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text(event.at.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text(event.source).font(.caption2.weight(.semibold)).foregroundStyle(ClashPalette.blue)
+                                }
+                                HStack(spacing: 10) {
+                                    Text(event.from).lineLimit(1)
+                                    Image(systemName: "arrow.right").foregroundStyle(ClashPalette.cyan)
+                                    Text(event.to).lineLimit(1)
+                                }.font(.callout.weight(.medium)).textSelection(.enabled)
+                                Text("\(event.delay) ms").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }.padding(16).frame(maxWidth: .infinity, alignment: .leading).panelSurface(radius: 13)
                         }
-                        .padding(.vertical, 2)
                     }
                 }
             }
-            .navigationTitle("切换历史")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("清空本机") { state.clearFailoverHistory() }
-                        .disabled(state.failoverHistory.isEmpty)
-                }
+            HStack {
+                Button("清空本机记录") { state.clearFailoverHistory() }.disabled(state.failoverHistory.isEmpty)
+                Spacer()
+                Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(ActionButtonStyle())
             }
-            .task { await state.refreshDeviceFailoverHistory() }
         }
-        .frame(minWidth: 440, minHeight: 520)
+        .padding(24).frame(width: 580, height: 560)
+        .background(ClashPalette.canvas).foregroundStyle(ClashPalette.ink)
+        .buttonStyle(ActionButtonStyle(filled: false)).tint(ClashPalette.blue)
+        .task { await state.refreshDeviceFailoverHistory() }
     }
 }
 
@@ -668,13 +649,7 @@ private struct BlockNodeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("拉黑节点").font(.title2.weight(.semibold))
-                Text(node.name)
-                    .font(.callout.weight(.medium))
-                    .textSelection(.enabled)
-                    .lineLimit(3)
-            }
+            WorkspaceBanner(symbol: "hand.raised", title: "管理节点黑名单", detail: node.name, color: ClashPalette.amber)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("范围").font(.callout.weight(.medium))
@@ -735,12 +710,15 @@ private struct BlockNodeSheet: View {
                 Spacer(minLength: 12)
                 Button("取消") { dismiss() }
                 Button(primaryTitle) { confirm() }
+                    .buttonStyle(ActionButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(primaryDisabled)
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 560)
+        .background(ClashPalette.canvas).foregroundStyle(ClashPalette.ink)
+        .buttonStyle(ActionButtonStyle(filled: false)).tint(ClashPalette.blue)
         .onAppear(perform: prepare)
     }
 
