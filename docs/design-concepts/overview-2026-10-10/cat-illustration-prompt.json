@@ -1,0 +1,10 @@
+{
+  "tool": "built-in image_gen.imagegen",
+  "mode": "generate",
+  "use_case": "illustration-story",
+  "transparent_background": true,
+  "reference_role": "supporting identity reference, unchanged old cat logo",
+  "reference": "Sources/ClashRemote/Resources/CatLogo.png",
+  "saved_asset": "Sources/ClashRemote/Resources/CatNetworkIllustration.png",
+  "prompt": "Use case: illustration-story. Create one professional editorial bitmap illustration asset for the mint cat theme of a macOS network utility. Supporting identity reference: the attached image is the app's existing old cat logo; preserve the recognizable sitting-cat profile with two pointed ears and curled tail, but DO NOT draw the navy rounded-square background. A refined softly shaded dark navy sitting cat silhouette in three-quarter side view, next to a small pale mint Wi-Fi router with two thin antennas, with a few very subtle sage rolling shapes and a delicate dotted network path curling upwards to a small wire-outline globe. Quiet warm ivory and sage mood, elegant grown-up product illustration, small soft apricot accent optional. Composition wide and low, approximately 2.5:1, all artwork centered in a horizontal band suitable for the right half of an app card, plenty of transparent negative space around it, clearly defined edges, soft minimal vector-like shading, no photo-real fur, no cute face, no giant eyes, no text, no letters, no UI, no logo frame, no photograph, no watermark, no checkerboard pattern. Genuinely transparent background. Cat and router should remain readable when displayed as a 210 by 95 pixel illustration. A single cat, a single router, a single small network globe, sparse and sophisticated."
+}

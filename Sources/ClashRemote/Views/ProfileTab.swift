@@ -17,7 +17,9 @@ private enum ProfileCategory: String, CaseIterable, Identifiable {
 }
 
 struct ProfileTab: View {
+    @ThemePalette private var palette
     @Environment(AppState.self) private var state
+    @Environment(\.appTextScale) private var textScale
     @State private var editingSubscription: LocalSubscription?
     @State private var addingSubscription = false
     @State private var keyword = ""
@@ -36,7 +38,7 @@ struct ProfileTab: View {
         VStack(alignment: .leading, spacing: 17) {
             HStack(spacing: 14) {
                 WorkspaceBanner(symbol: "internaldrive", title: "属于这台 Mac 的配置",
-                                detail: "订阅、筛选和分流规则保存在本机，可在设备之间复用。", color: ClashPalette.amber)
+                                detail: "订阅、筛选和分流规则保存在本机，可在设备之间复用。", color: palette.amber)
                 Button { state.syncAllToRouter() } label: { Label("同步订阅和规则", systemImage: "arrow.triangle.2.circlepath") }
                     .buttonStyle(ActionButtonStyle()).controlSize(.large).disabled(!state.isConnected || state.isBusy)
             }
@@ -44,10 +46,10 @@ struct ProfileTab: View {
                 ForEach(ProfileCategory.allCases) { item in
                     Button { category = item } label: {
                         Label(item.rawValue, systemImage: item.symbol)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(category == item ? ClashPalette.blue : ClashPalette.muted)
+                            .appFont(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(category == item ? palette.blue : palette.muted)
                             .padding(.horizontal, 14).padding(.vertical, 10)
-                            .background(category == item ? ClashPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 11))
+                            .background(category == item ? palette.surface : .clear, in: RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain).accessibilityAddTraits(category == item ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
@@ -104,7 +106,7 @@ struct ProfileTab: View {
                             }
                         ))
                         Text(sub.url).lineLimit(1).truncationMode(.middle)
-                            .font(.caption).foregroundStyle(.secondary)
+                            .appFont(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("编辑") { editingSubscription = sub }
                         Button(role: .destructive) {
@@ -128,7 +130,7 @@ struct ProfileTab: View {
     private var filterCard: some View {
         Card(title: "节点筛选", subtitle: "筛选会立即影响节点列表和本机自动切换；重新安装设备守护后在路由器上生效。", symbol: "line.3.horizontal.decrease") {
             VStack(alignment: .leading, spacing: 14) {
-                Text("排除名称含这些文字的节点").font(.callout.weight(.medium))
+                Text("排除名称含这些文字的节点").appFont(.callout.weight(.medium))
                 editableTokens(state.profile.filterKeywords, remove: { value in
                     change { $0.filterKeywords.removeAll { $0 == value } }
                 })
@@ -140,8 +142,8 @@ struct ProfileTab: View {
                         .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 Divider()
-                Text("排除地区").font(.callout.weight(.medium))
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 10)], spacing: 10) {
+                Text("排除地区").appFont(.callout.weight(.medium))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 155 * textScale), spacing: 10)], spacing: 10) {
                     ForEach(RegionExclusion.allCases) { region in
                         let excluded = state.profile.regionExclusions.contains(region)
                         Button {
@@ -152,15 +154,15 @@ struct ProfileTab: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: excluded ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(excluded ? ClashPalette.blue : ClashPalette.muted)
+                                    .foregroundStyle(excluded ? palette.blue : palette.muted)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(region.label).font(.callout.weight(.medium)).foregroundStyle(ClashPalette.ink)
-                                    if !region.note.isEmpty { Text(region.note).font(.caption2).foregroundStyle(.secondary) }
+                                    Text(region.label).appFont(.callout.weight(.medium)).foregroundStyle(palette.ink)
+                                    if !region.note.isEmpty { Text(region.note).appFont(.caption2).foregroundStyle(.secondary) }
                                 }
                                 Spacer(minLength: 0)
                             }
                             .padding(11).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-                            .background(excluded ? ClashPalette.blue.opacity(0.07) : ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 11))
+                            .background(excluded ? palette.blue.opacity(0.07) : palette.surfaceMuted, in: RoundedRectangle(cornerRadius: 11))
                         }
                         .buttonStyle(.plain).accessibilityValue(excluded ? "已排除" : "未排除")
                     }
@@ -188,7 +190,7 @@ struct ProfileTab: View {
                 }
                 if state.profile.providerWhitelistEnabled && state.profile.providerWhitelist.isEmpty {
                     Text("先添加至少一个机场关键词；空列表不会过滤节点。")
-                        .font(.caption).foregroundStyle(.orange)
+                        .appFont(.caption).foregroundStyle(.orange)
                 }
                 Button("同步关键词过滤") { state.syncFilterToRouter() }
                     .disabled(!state.isConnected || state.isBusy)
@@ -201,17 +203,17 @@ struct ProfileTab: View {
             VStack(alignment: .leading, spacing: 12) {
                 if state.blockedCount == 0 {
                     Text("还没有拉黑任何节点。拉黑后节点会灰掉留在列表里，随时可以在这里解除。")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .appFont(.caption).foregroundStyle(.secondary)
                 } else {
                     if !state.profile.blockedKeywords.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("按关键词拉黑（整个订阅 / 机场）")
-                                .font(.callout.weight(.medium))
+                                .appFont(.callout.weight(.medium))
                             ForEach(state.profile.blockedKeywords, id: \.self) { word in
                                 HStack {
                                     Text(word).lineLimit(1)
                                     Text("匹配 \(state.nodesMatching(keyword: word).count) 个节点")
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .appFont(.caption).foregroundStyle(.secondary)
                                     Spacer()
                                     Button { state.unblockKeyword(word) } label: {
                                         Label("解除", systemImage: "arrow.uturn.backward")
@@ -223,7 +225,7 @@ struct ProfileTab: View {
                     }
                     if !state.profile.blockedNodes.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("按节点名拉黑").font(.callout.weight(.medium))
+                            Text("按节点名拉黑").appFont(.callout.weight(.medium))
                             ForEach(state.profile.blockedNodes, id: \.self) { name in
                                 HStack {
                                     Text(name).lineLimit(1)
@@ -243,7 +245,7 @@ struct ProfileTab: View {
                         Spacer(minLength: 0)
                     }
                     Text("设备守护要重新安装一次才会用上新黑名单。")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .appFont(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -259,7 +261,7 @@ struct ProfileTab: View {
                 .help("打开后当前节点延迟再高也不换；只有它真的超时才自动切到可用节点。")
                 if state.profile.pinnedNode {
                     Text("固定中：下面的阈值暂时不生效，关掉即恢复。")
-                        .font(.caption).foregroundStyle(.orange)
+                        .appFont(.caption).foregroundStyle(.orange)
                 }
                 Stepper(value: Binding(
                     get: { state.profile.failoverThreshold },
@@ -271,7 +273,7 @@ struct ProfileTab: View {
                 }
                 .disabled(state.profile.pinnedNode)
                 Text("设备守护独立运行；修改筛选、阈值或固定开关后，需在“设备控制”中重新安装。")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .appFont(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -282,7 +284,7 @@ struct ProfileTab: View {
                 ForEach(state.profile.domainRules) { rule in
                     HStack {
                         Text("\(rule.ruleType),\(rule.domain),\(rule.proxy)")
-                            .font(.system(.callout, design: .monospaced))
+                            .appFont(.system(.callout, design: .monospaced))
                         Spacer()
                         Button(role: .destructive) {
                             change { $0.domainRules.removeAll { $0.id == rule.id } }
@@ -297,13 +299,13 @@ struct ProfileTab: View {
                         Text("域名后缀").tag("DOMAIN-SUFFIX")
                         Text("域名关键词").tag("DOMAIN-KEYWORD")
                     }
-                    .frame(width: 140)
+                    .frame(width: 140 * textScale)
                     Picker("动作", selection: $ruleProxy) {
                         Text("直连").tag("DIRECT")
                         Text("拒绝").tag("REJECT")
                         Text("代理").tag("GLOBAL")
                     }
-                    .frame(width: 100)
+                    .frame(width: 100 * textScale)
                     Button { addRule() } label: { Image(systemName: "plus") }
                         .help("添加域名规则")
                         .disabled(cleanDomain.isEmpty)
@@ -345,6 +347,7 @@ struct ProfileTab: View {
 }
 
 private struct FlowTokens: View {
+    @ThemePalette private var palette
     let values: [String]
     let remove: (String) -> Void
 
@@ -362,7 +365,7 @@ private struct FlowTokens: View {
                             .help("删除 \(value)")
                     }
                     .padding(7)
-                    .background(ClashPalette.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                    .background(palette.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
                 }
             }
         }
@@ -370,6 +373,7 @@ private struct FlowTokens: View {
 }
 
 private struct LocalSubscriptionEditor: View {
+    @ThemePalette private var palette
     @Environment(\.dismiss) private var dismiss
     let subscription: LocalSubscription?
     let existingNames: Set<String>
@@ -391,7 +395,7 @@ private struct LocalSubscriptionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            WorkspaceBanner(symbol: "link", title: subscription == nil ? "收藏订阅" : "编辑订阅收藏", detail: "先保存到本机，再同步到需要的路由器。", color: ClashPalette.amber)
+            WorkspaceBanner(symbol: "link", title: subscription == nil ? "收藏订阅" : "编辑订阅收藏", detail: "先保存到本机，再同步到需要的路由器。", color: palette.amber)
             VStack(alignment: .leading, spacing: 17) {
                 EditorField(title: "收藏名称", symbol: "tag") { TextField("例如 常用订阅", text: $name) }
                 EditorField(title: "订阅链接", symbol: "link") { TextField("https://…", text: $url, axis: .vertical).lineLimit(3...5) }
@@ -400,7 +404,7 @@ private struct LocalSubscriptionEditor: View {
             }.padding(20).panelSurface()
             if existingNames.contains(name.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 Text("已存在同名订阅，请使用不同名称。")
-                    .font(.caption)
+                    .appFont(.caption)
                     .foregroundStyle(.red)
             }
             HStack {
@@ -426,9 +430,9 @@ private struct LocalSubscriptionEditor: View {
         }
         .padding(24)
         .frame(width: 560)
-        .background(ClashPalette.canvas)
-        .tint(ClashPalette.blue)
-        .foregroundStyle(ClashPalette.ink)
+        .background(palette.canvas)
+        .tint(palette.blue)
+        .foregroundStyle(palette.ink)
         .buttonStyle(ActionButtonStyle(filled: false))
     }
 }

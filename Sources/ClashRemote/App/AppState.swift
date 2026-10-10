@@ -18,6 +18,9 @@ final class AppState {
     var deviceFailover = DeviceFailoverStatus()
     var failoverHistory: [FailoverEvent] = []
     var deviceFailoverHistory: [FailoverEvent] = []
+    var trafficHistory: [TrafficSample] = []
+    @ObservationIgnored private var previousTrafficCounter: TrafficCounterReading?
+    @ObservationIgnored private var connectionGeneration = UUID()
     static let deviceFailoverIntervals = [5, 15, 30]
     private static let historyKey = "failoverHistory"
     private static let historyLimit = 80
@@ -55,6 +58,7 @@ final class AppState {
     private static let fallbackProbeLimit = 24
 
     @ObservationIgnored private let store = DeviceStore()
+    @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let profileStore = ProfileStore()
     var profile = LocalProfile.default
     @ObservationIgnored private var service: (any ClashBackend)?
@@ -73,7 +77,8 @@ final class AppState {
         connectedDeviceID != nil && connectedDeviceID == selectedID && lastError == nil
     }
 
-    init() {
+    init(preferences: AppPreferences = AppPreferences()) {
+        self.preferences = preferences
         let loaded = store.load()
         devices = loaded.devices
         selectedID = loaded.selected ?? loaded.devices.first?.id
@@ -133,9 +138,10 @@ final class AppState {
         }
     }
 
-    func connect() async {
+    func connect(preservingOperation: Bool = false) async {
         guard let device = selectedDevice else { return }
-        pollTask?.cancel()
+        disconnect(cancelOperation: !preservingOperation)
+        let generation = connectionGeneration
         isConnecting = true
         lastError = nil
         notice = .info("正在连接 \(device.displayAddress)…")
@@ -144,14 +150,17 @@ final class AppState {
                 ? MaoMaoService(device: device)
                 : OpenClashService(device: device)
             let snap = try await next.connect()
+            guard connectionGeneration == generation, selectedID == device.id else { return }
             service = next
             snapshot = snap
+            recordTraffic()
             connectedDeviceID = device.id
             isConnecting = false
             notice = .success("已连接 \(snap.status.model.isEmpty ? device.name : snap.status.model)")
             startPolling()
             await refreshDeviceFailover()
         } catch {
+            guard connectionGeneration == generation, selectedID == device.id else { return }
             isConnecting = false
             connectedDeviceID = nil
             service = nil
@@ -161,30 +170,45 @@ final class AppState {
         }
     }
 
-    func disconnect() {
+    func disconnect(cancelOperation: Bool = true) {
+        connectionGeneration = UUID()
         pollTask?.cancel()
         pollTask = nil
         failoverTask?.cancel()
         failoverTask = nil
         pingAllTask?.cancel()
         pingAllTask = nil
-        runTask?.cancel()
-        runTask = nil
+        if cancelOperation {
+            runTask?.cancel()
+            runTask = nil
+        }
         failoverBusy = false
         pingingAll = false
         testingNodes.removeAll()
         isBusy = false
+        isConnecting = false
         service = nil
         connectedDeviceID = nil
         deviceFailover = DeviceFailoverStatus()
+        trafficHistory.removeAll()
+        previousTrafficCounter = nil
     }
 
     func refresh(full: Bool = false) async {
-        guard let service else { return }
+        guard let service, connectedDeviceID == selectedID else { return }
+        let generation = connectionGeneration
+        let deviceID = selectedID
         do {
             let snap = try await service.refresh(full: full)
+            guard connectionGeneration == generation, selectedID == deviceID else { return }
             snapshot.status = snap.status
-            snapshot.traffic = snap.traffic
+            let olderTraffic = snap.traffic.counterReadAt.map { readAt in
+                previousTrafficCounter.map { readAt <= $0.date } ?? false
+            } ?? false
+            if !olderTraffic {
+                snapshot.traffic = snap.traffic
+                recordTraffic()
+            }
             snapshot.configs = snap.configs
             if full || !snap.subscriptions.isEmpty {
                 // 猫猫只在 full 刷新时才去读 config.yaml 拿订阅列表，别把空结果盖上去。
@@ -200,7 +224,45 @@ final class AppState {
             }
             lastError = nil
         } catch {
+            guard connectionGeneration == generation, selectedID == deviceID else { return }
             lastError = error.localizedDescription
+        }
+    }
+
+    private func recordTraffic() {
+        guard snapshot.status.running else {
+            previousTrafficCounter = nil
+            trafficHistory.removeAll()
+            return
+        }
+        let date = snapshot.traffic.counterReadAt ?? Date()
+        var download = TrafficRate.parse(snapshot.traffic.down)
+        var upload = TrafficRate.parse(snapshot.traffic.up)
+        if let downBytes = snapshot.traffic.downloadBytes, let upBytes = snapshot.traffic.uploadBytes {
+            let current = TrafficCounterReading(date: date, download: downBytes, upload: upBytes)
+            if let previous = previousTrafficCounter {
+                guard date > previous.date else { return }
+                let elapsed = date.timeIntervalSince(previous.date)
+                if downBytes < previous.download || upBytes < previous.upload {
+                    // Restarted cores reset their counters. Begin a fresh timeline.
+                    trafficHistory.removeAll()
+                } else if elapsed >= 0.5, elapsed <= 30 {
+                    download = Double(downBytes - previous.download) / elapsed
+                    upload = Double(upBytes - previous.upload) / elapsed
+                    snapshot.traffic.down = TrafficRate.format(download ?? 0)
+                    snapshot.traffic.up = TrafficRate.format(upload ?? 0)
+                }
+            }
+            previousTrafficCounter = current
+        } else {
+            previousTrafficCounter = nil
+        }
+        if let download, let upload, download.isFinite, upload.isFinite {
+            trafficHistory.append(TrafficSample(date: date, download: download, upload: upload))
+        }
+        trafficHistory.removeAll { date.timeIntervalSince($0.date) > 300 }
+        if trafficHistory.count > 300 {
+            trafficHistory.removeFirst(trafficHistory.count - 300)
         }
     }
 
@@ -210,6 +272,8 @@ final class AppState {
             return
         }
         runTask?.cancel()
+        let generation = connectionGeneration
+        let deviceID = selectedID
         // 长操作（重下订阅、重启内核）期间先停掉 3 秒轮询：
         // 它每轮都要向路由器发 root shell，会和长命令抢同一条通道，
         // 而 UFI 的服务端在执行长命令时是整体阻塞的 —— 两边互等，看起来就是"卡住"。
@@ -222,16 +286,20 @@ final class AppState {
         runTask = Task { @MainActor [weak self] in
             do {
                 try await work(service)
+                guard self?.connectionGeneration == generation, self?.selectedID == deviceID else { return }
                 if restartWait {
                     try await Task.sleep(for: .seconds(2.4))
                 }
                 await self?.refresh(full: true)
+                guard self?.connectionGeneration == generation, self?.selectedID == deviceID else { return }
                 self?.isBusy = false
                 self?.notice = .success("完成")
             } catch is CancellationError {
+                guard self?.connectionGeneration == generation, self?.selectedID == deviceID else { return }
                 self?.startPolling()
                 return
             } catch {
+                guard self?.connectionGeneration == generation, self?.selectedID == deviceID else { return }
                 self?.isBusy = false
                 self?.notice = .error(error.localizedDescription)
             }
@@ -241,15 +309,28 @@ final class AppState {
     }
 
     func setRunning(_ running: Bool) {
+        let generation = connectionGeneration
         run(running ? "正在启动…" : "正在停止…", restartWait: true) {
             try await $0.setRunning(running)
+            guard self.connectionGeneration == generation else { return }
+            self.snapshot.status.running = running
+            self.resetTraffic()
         }
     }
 
     func restart() {
+        let generation = connectionGeneration
         run("正在重启核心…", restartWait: true) {
             try await $0.restart()
+            guard self.connectionGeneration == generation else { return }
+            self.resetTraffic()
         }
+    }
+
+    private func resetTraffic() {
+        previousTrafficCounter = nil
+        trafficHistory.removeAll()
+        snapshot.traffic = TrafficSnapshot()
     }
 
     func setRuleMode(_ mode: RuleMode) {
@@ -617,22 +698,29 @@ final class AppState {
             guard let self else { return }
             var failures: [String] = []
             for device in allDevices {
+                guard !Task.isCancelled else { return }
                 do {
                     let backend: any ClashBackend = device.plugin == .maomao
                         ? MaoMaoService(device: device)
                         : OpenClashService(device: device)
                     let snap = try await backend.connect()
+                    try Task.checkCancellation()
                     try await work(backend, snap.status.configPath)
                     if restartWait {
                         try await Task.sleep(for: .milliseconds(800))
                     }
+                } catch is CancellationError {
+                    return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     failures.append("\(device.name)：\(error.localizedDescription)")
                 }
             }
+            guard !Task.isCancelled, currentID == self.selectedID else { return }
             if refreshCurrent, currentID == self.selectedID {
-                await self.connect()
+                await self.connect(preservingOperation: true)
             }
+            guard !Task.isCancelled, currentID == self.selectedID else { return }
             self.isBusy = false
             if failures.isEmpty {
                 self.notice = .success("已同步到所有路由器")
@@ -648,9 +736,14 @@ final class AppState {
             deviceFailover = DeviceFailoverStatus()
             return
         }
+        let generation = connectionGeneration
+        let deviceID = selectedID
         do {
-            deviceFailover = try await service.deviceFailoverStatus()
+            let status = try await service.deviceFailoverStatus()
+            guard connectionGeneration == generation, selectedID == deviceID else { return }
+            deviceFailover = status
         } catch {
+            guard connectionGeneration == generation, selectedID == deviceID else { return }
             deviceFailover.detail = error.localizedDescription
         }
     }
@@ -726,23 +819,30 @@ final class AppState {
         return error.localizedDescription
     }
 
-    private func startPolling() {
+    func updatePollingFrequency() {
+        guard service != nil, !isConnecting, !isBusy else { return }
+        startPolling(restartFailover: false)
+    }
+
+    private func startPolling(restartFailover: Bool = true) {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
-            var tick = 0
+            var nextGuardRefresh = Date().addingTimeInterval(15)
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
+                let seconds = self?.preferences.refreshInterval.seconds ?? 3
+                try? await Task.sleep(for: .seconds(seconds))
                 guard !Task.isCancelled else { break }
-                tick += 1
                 await self?.refresh(full: false)
+                guard !Task.isCancelled else { break }
                 // 设备守护的状态几秒内不会变，而每问一次都要在路由器上开一次 root shell：
                 // 每 3 秒问一次是纯浪费，还会和测速抢路由器的 CPU。
-                if tick % 5 == 0 {
+                if Date() >= nextGuardRefresh {
                     await self?.refreshDeviceFailover()
+                    nextGuardRefresh = Date().addingTimeInterval(15)
                 }
             }
         }
-        restartFailoverWatch()
+        if restartFailover { restartFailoverWatch() }
     }
 
     static func failoverIntervalTitle(_ seconds: Int) -> String {

@@ -156,13 +156,17 @@ struct OpenClashStatus: Equatable {
 }
 
 struct TrafficSnapshot: Equatable {
-    var up = "0 B/S"
-    var down = "0 B/S"
-    var upTotal = "0 B"
-    var downTotal = "0 B"
+    var up = ""
+    var down = ""
+    var upTotal = ""
+    var downTotal = ""
     var connections = 0
     var cpu = "0"
     var mem = "—"
+    // Keep the core counters before formatting, so rates use accurate byte deltas.
+    var uploadBytes: Int64?
+    var downloadBytes: Int64?
+    var counterReadAt: Date? = nil
 }
 
 struct ConfigFile: Identifiable, Hashable {

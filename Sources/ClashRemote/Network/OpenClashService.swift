@@ -347,18 +347,22 @@ final class OpenClashService {
 
     func loadClashTraffic() async throws -> TrafficSnapshot {
         let response = try await client.clashRequest(path: "/connections")
+        let counterReadAt = Date()
         let dict = try response.jsonDict()
-        let up = JSONValue.int(dict["uploadTotal"])
-        let down = JSONValue.int(dict["downloadTotal"])
+        let up = TrafficCounter.parse(dict["uploadTotal"])
+        let down = TrafficCounter.parse(dict["downloadTotal"])
         let conns = JSONValue.array(dict["connections"]).count
         return TrafficSnapshot(
             up: "",
             down: "",
-            upTotal: ByteCountFormatter.string(fromByteCount: Int64(up), countStyle: .file),
-            downTotal: ByteCountFormatter.string(fromByteCount: Int64(down), countStyle: .file),
+            upTotal: up.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "",
+            downTotal: down.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "",
             connections: conns,
             cpu: "",
-            mem: ""
+            mem: "",
+            uploadBytes: up,
+            downloadBytes: down,
+            counterReadAt: counterReadAt
         )
     }
 

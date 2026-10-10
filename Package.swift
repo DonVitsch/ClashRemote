@@ -16,7 +16,9 @@ let package = Package(
                 "Resources/ufi-failover-plugin.js"
             ],
             resources: [
-                .copy("Resources/cr-failover.html")
+                .copy("Resources/cr-failover.html"),
+                .copy("Resources/CatLogo.png"),
+                .copy("Resources/CatNetworkIllustration.png")
             ]
         ),
         .testTarget(

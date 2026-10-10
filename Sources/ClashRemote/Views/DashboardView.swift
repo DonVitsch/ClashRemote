@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 
 struct DashboardView: View {
+    @ThemePalette private var palette
     @Environment(AppState.self) private var state
     @Binding var section: WorkspaceSection
     let onAddDevice: () -> Void
     var onEditDevice: () -> Void = {}
+    var initialSettingsCategory: SettingsCategory = .general
     @State private var newDomain = ""
     @State private var newRuleProxy = "DIRECT"
     @State private var testHost = ""
@@ -15,10 +17,14 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             pageHeader
-            if let notice = state.notice {
-                NoticeBar(notice: notice)
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 4)
+            if let notice = visibleNotice {
+                if section == .nodes {
+                    compactNotice(notice)
+                } else {
+                    NoticeBar(notice: notice)
+                        .padding(.horizontal, 30)
+                        .padding(.bottom, 4)
+                }
             }
             Group {
                 switch section {
@@ -28,12 +34,13 @@ struct DashboardView: View {
                 case .rules: rulesTab
                 case .device: deviceControlPage
                 case .profile: ProfileTab()
+                case .settings: AppSettingsView(initialCategory: initialSettingsCategory)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(ClashPalette.canvas)
-        .foregroundStyle(ClashPalette.ink)
+        .background(palette.canvas)
+        .foregroundStyle(palette.ink)
         .buttonStyle(ActionButtonStyle(filled: false))
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -59,63 +66,66 @@ struct DashboardView: View {
         }
     }
 
+    private var visibleNotice: AppNotice? {
+        if section == .overview, let notice = state.notice, case .success(let message) = notice,
+           message.hasPrefix("已连接 ") { return nil }
+        return state.notice
+    }
+
     private var pageHeader: some View {
-        HStack(alignment: .bottom, spacing: 20) {
+        HStack(alignment: section == .nodes ? .center : .bottom, spacing: 20) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(section.eyebrow)
-                    .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.7)
-                    .foregroundStyle(ClashPalette.blue)
                 HStack(spacing: 10) {
-                    Text(section.rawValue).font(.system(size: 27, weight: .bold, design: .rounded)).foregroundStyle(ClashPalette.ink)
+                    Text(section.rawValue).appFont(.system(size: section == .nodes ? 22 : 27, weight: .bold, design: .rounded)).foregroundStyle(palette.ink)
+                    if section == .nodes {
+                        Text("代理线路").appFont(.caption).foregroundStyle(.secondary)
+                    }
                     if section == .overview { StatusPill(running: state.snapshot.status.running && state.isConnected, connecting: state.isConnecting, connected: state.isConnected) }
                 }
-                Text(pageSubtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1).help(pageSubtitle)
+                if section != .nodes {
+                    Text(pageSubtitle).appFont(.callout).foregroundStyle(.secondary).lineLimit(1).help(pageSubtitle)
+                }
             }
             Spacer(minLength: 8)
             if state.isBusy {
                 ProgressView().controlSize(.small).help("正在处理设备操作")
             }
-            if state.isConnected {
+            if state.isConnected, section != .overview, section != .settings {
                 HStack(spacing: 16) {
-                    trafficMetric(symbol: "arrow.down", value: state.snapshot.traffic.down.isEmpty ? "—" : state.snapshot.traffic.down, tint: ClashPalette.cyan)
-                    trafficMetric(symbol: "arrow.up", value: state.snapshot.traffic.up.isEmpty ? "—" : state.snapshot.traffic.up, tint: ClashPalette.blue)
-                    trafficMetric(symbol: "point.3.connected.trianglepath.dotted", value: "\(state.snapshot.traffic.connections)", tint: ClashPalette.green)
+                    trafficMetric(symbol: "arrow.down", value: state.snapshot.traffic.down.isEmpty ? "—" : state.snapshot.traffic.down, tint: palette.cyan)
+                    trafficMetric(symbol: "arrow.up", value: state.snapshot.traffic.up.isEmpty ? "—" : state.snapshot.traffic.up, tint: palette.blue)
+                    trafficMetric(symbol: "point.3.connected.trianglepath.dotted", value: "\(state.snapshot.traffic.connections)", tint: palette.green)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(ClashPalette.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 14).padding(.vertical, section == .nodes ? 7 : 10)
+                .background(palette.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
-        .padding(.horizontal, 30).padding(.top, 25).padding(.bottom, 16)
+        .padding(.horizontal, section == .nodes ? 24 : 30)
+        .padding(.top, section == .nodes ? 12 : 25)
+        .padding(.bottom, section == .nodes ? 10 : 16)
+    }
+
+    private func compactNotice(_ notice: AppNotice) -> some View {
+        let appearance: (symbol: String, color: Color)
+        switch notice {
+        case .info: appearance = ("info.circle.fill", palette.blue)
+        case .success: appearance = ("checkmark.circle.fill", palette.green)
+        case .error: appearance = ("exclamationmark.triangle.fill", .red)
+        }
+        return HStack(spacing: 6) {
+            Image(systemName: appearance.symbol)
+            Text(notice.text).lineLimit(2).help(notice.text)
+            Spacer(minLength: 0)
+        }
+        .appFont(.system(size: 11)).foregroundStyle(appearance.color)
+        .padding(.horizontal, 24).padding(.bottom, 6)
     }
 
     private func trafficMetric(symbol: String, value: String, tint: Color) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
-            Text(value).font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit()).foregroundStyle(ClashPalette.ink)
+            Image(systemName: symbol).appFont(.system(size: 10, weight: .bold)).foregroundStyle(tint)
+            Text(value).appFont(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit()).foregroundStyle(palette.ink)
         }
-    }
-
-    private var trafficCards: some View {
-        let t = state.snapshot.traffic
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 13), count: 4), spacing: 13) {
-            metricCard("下载速率", value: state.isConnected ? t.down : "—", note: "累计 " + (state.isConnected ? t.downTotal : "—"), symbol: "arrow.down", color: ClashPalette.cyan)
-            metricCard("上传速率", value: state.isConnected ? t.up : "—", note: "累计 " + (state.isConnected ? t.upTotal : "—"), symbol: "arrow.up", color: ClashPalette.blue)
-            metricCard("活动连接", value: state.isConnected ? "\(t.connections)" : "—", note: "当前设备", symbol: "point.3.connected.trianglepath.dotted", color: ClashPalette.green)
-            metricCard("核心内存", value: state.isConnected ? t.mem : "—", note: state.snapshot.status.coreType.isEmpty ? "等待核心信息" : state.snapshot.status.coreType, symbol: "cpu", color: ClashPalette.amber)
-        }
-    }
-
-    private func metricCard(_ title: String, value: String, note: String, symbol: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                Spacer()
-                Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
-            }
-            Text(value).font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit()).foregroundStyle(ClashPalette.ink).lineLimit(1).minimumScaleFactor(0.7)
-            Text(note).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .padding(17).frame(maxWidth: .infinity, alignment: .leading).panelSurface()
     }
 
     private var pageSubtitle: String {
@@ -126,147 +136,12 @@ struct DashboardView: View {
         case .rules: "检查域名如何匹配代理策略"
         case .device: "管理核心、流量接管和设备守护"
         case .profile: "筛选节点并配置自动切换行为"
+        case .settings: "调整常规偏好、文字大小与界面主题"
         }
     }
 
     private var overviewPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                networkHero
-                trafficCards
-                Card(title: "代理模式", subtitle: "选择流量如何通过你的网络", symbol: "arrow.triangle.branch") {
-                    HStack(spacing: 10) {
-                        ForEach(RuleMode.allCases) { mode in
-                            modeButton(mode)
-                        }
-                    }
-                    .disabled(!state.isConnected || state.isBusy)
-                }
-                HStack(alignment: .top, spacing: 16) {
-                    Card(title: "当前线路", symbol: "globe.asia.australia") {
-                        VStack(alignment: .leading, spacing: 11) {
-                            Text(state.snapshot.status.ruleMode == .direct ? "全部直连" : (state.activeNode?.leafName ?? "尚未选择节点"))
-                                .font(.system(size: 16, weight: .semibold, design: .rounded)).lineLimit(2).foregroundStyle(ClashPalette.ink)
-                            HStack {
-                                Label(state.pinnedNode ? "固定当前节点" : "允许自动切换", systemImage: state.pinnedNode ? "pin.fill" : "arrow.triangle.2.circlepath")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Spacer()
-                                if let node = state.activeNode, let delay = state.delay(for: node.leafName) {
-                                    Text(delay < 0 ? "超时" : "\(delay) ms").font(.caption.weight(.bold)).foregroundStyle(delay < 0 ? .red : ClashPalette.green)
-                                }
-                            }
-                            Button { section = .nodes } label: { Label("打开节点库", systemImage: "arrow.up.right") }
-                                .buttonStyle(ActionButtonStyle(filled: false)).disabled(!state.isConnected)
-                        }
-                    }
-                    Card(title: "设备守护", symbol: "shield.lefthalf.filled", color: ClashPalette.green) {
-                        VStack(alignment: .leading, spacing: 11) {
-                            Text(deviceFailoverHeadline(state.deviceFailover))
-                                .font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundStyle(ClashPalette.ink)
-                            Text(state.deviceFailover.installed ? state.deviceFailover.phaseTitle : "在路由器上独立检测，节点失效时自动切换。")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            Button { section = .device } label: { Label("管理设备守护", systemImage: "arrow.up.right") }
-                                .buttonStyle(ActionButtonStyle(filled: false))
-                        }
-                    }
-                }
-                HStack(spacing: 12) {
-                    shortcut(.subscriptions, title: "更新订阅", detail: "\(state.snapshot.subscriptions.count) 个配置来源", color: ClashPalette.blue)
-                    shortcut(.rules, title: "检查分流", detail: "\(state.snapshot.rules.count) 条当前规则", color: ClashPalette.cyan)
-                    shortcut(.profile, title: "筛选与偏好", detail: "本机保存 · 随时同步", color: ClashPalette.amber)
-                }
-            }
-            .padding(.horizontal, 30).padding(.top, 10).padding(.bottom, 30)
-        }
-    }
-
-    private func modeButton(_ mode: RuleMode) -> some View {
-        let selected = state.snapshot.status.ruleMode == mode
-        let symbol = mode == .rule ? "arrow.triangle.branch" : (mode == .global ? "globe.asia.australia" : "arrow.right")
-        return Button { state.setRuleMode(mode) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .medium)).foregroundStyle(selected ? ClashPalette.blue : ClashPalette.muted)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(mode.title).font(.system(size: 13, weight: .semibold))
-                    Text(mode.hint).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? ClashPalette.blue : ClashPalette.border)
-            }
-            .padding(13).frame(maxWidth: .infinity)
-            .background(selected ? ClashPalette.blue.opacity(0.075) : ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? ClashPalette.blue.opacity(0.45) : .clear, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private func shortcut(_ destination: WorkspaceSection, title: String, detail: String, color: Color) -> some View {
-        Button { section = destination } label: {
-            HStack(spacing: 10) {
-                GlyphBadge(symbol: destination.symbol, color: color, size: 32)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(ClashPalette.ink)
-                    Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-            }
-            .padding(14).panelSurface(radius: 14)
-        }.buttonStyle(.plain)
-    }
-
-    private var networkHero: some View {
-        let running = state.snapshot.status.running && state.isConnected
-        let currentNode = state.isConnected ? (state.snapshot.status.ruleMode == .direct ? "直连模式 · 不经过代理节点" : (state.activeNode?.leafName ?? "尚未选择节点")) : "连接路由器，开始管理你的网络"
-        return HStack(spacing: 24) {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack(spacing: 8) {
-                    Circle().fill(running ? ClashPalette.green : ClashPalette.amber).frame(width: 8, height: 8)
-                    Text(running ? "PROXY ROUTE ACTIVE" : (state.isConnecting ? "CONNECTING TO ROUTER" : "ROUTE IS INACTIVE"))
-                        .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.35)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                Text(state.selectedDevice?.name ?? "让网络，尽在掌握")
-                    .font(.system(size: 25, weight: .bold, design: .rounded)).foregroundStyle(.white).lineLimit(1)
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(ClashPalette.cyan)
-                    Text(currentNode).font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.9)).lineLimit(1)
-                }
-                HStack(spacing: 9) {
-                    if state.selectedDevice == nil {
-                        Button(action: onAddDevice) { Label("添加路由器", systemImage: "plus") }
-                            .buttonStyle(ActionButtonStyle(color: ClashPalette.cyan, labelColor: Color(red: 0.1, green: 0.16, blue: 0.23)))
-                    }
-                    Button { state.setRunning(!state.snapshot.status.running) } label: {
-                        Label(state.snapshot.status.running ? "停止代理" : "启动代理", systemImage: state.snapshot.status.running ? "stop.fill" : "play.fill")
-                    }
-                    .buttonStyle(ActionButtonStyle(color: running ? ClashPalette.amber : ClashPalette.green, labelColor: running ? Color(red: 0.1, green: 0.16, blue: 0.23) : .white))
-                    .disabled(state.isBusy || state.isConnecting || !state.isConnected)
-                    Button { section = .nodes } label: { Label("选择节点", systemImage: "point.3.connected.trianglepath.dotted") }
-                        .disabled(!state.isConnected)
-                        .buttonStyle(ActionButtonStyle(filled: false, onDark: true))
-                    if !state.isConnected, state.selectedDevice != nil {
-                        Button { Task { await state.connect() } } label: { Label("连接设备", systemImage: "link") }
-                            .buttonStyle(ActionButtonStyle(filled: false, onDark: true)).disabled(state.isConnecting)
-                    }
-                }
-                .controlSize(.large)
-            }
-            Spacer(minLength: 12)
-            NetworkArtwork(active: running, usesProxy: state.snapshot.status.ruleMode != .direct)
-                .frame(width: 220, height: 150)
-                .accessibilityLabel("Mac、路由器和代理节点之间的网络连接示意图")
-        }
-        .padding(.horizontal, 25).padding(.vertical, 22)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(red: 0.08, green: 0.18, blue: 0.31), Color(red: 0.08, green: 0.34, blue: 0.48)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Circle().fill(ClashPalette.cyan.opacity(0.12)).frame(width: 250).blur(radius: 20).offset(x: 250, y: -70)
-            }.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.13), lineWidth: 1))
-        .shadow(color: ClashPalette.ink.opacity(0.12), radius: 18, x: 0, y: 9)
+        ThemedOverview(onAddDevice: onAddDevice, navigate: { section = $0 })
     }
 
     private var deviceActions: some View {
@@ -307,7 +182,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     WorkspaceBanner(symbol: "wifi.router.fill", title: state.selectedDevice?.name ?? "设备控制",
-                                    detail: state.isConnected ? subtitle : "连接设备后管理代理核心和流量接管", color: ClashPalette.cyan)
+                                    detail: state.isConnected ? subtitle : "连接设备后管理代理核心和流量接管", color: palette.cyan)
                     deviceActions
                 }
                 Card(title: "流量接管", subtitle: "选择路由器接管设备流量的方式", symbol: "network") {
@@ -317,15 +192,15 @@ struct DashboardView: View {
                             Button { state.setCapture(capture) } label: {
                                 VStack(alignment: .leading, spacing: 7) {
                                     HStack {
-                                        Text(capture.title).font(.system(size: 15, weight: .bold, design: .rounded))
+                                        Text(capture.title).appFont(.system(size: 15, weight: .bold, design: .rounded))
                                         Spacer()
-                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? ClashPalette.blue : ClashPalette.muted)
+                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? palette.blue : palette.muted)
                                     }
-                                    Text(capture.hint).font(.caption).foregroundStyle(.secondary)
+                                    Text(capture.hint).appFont(.caption).foregroundStyle(.secondary)
                                 }
                                 .padding(15).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selected ? ClashPalette.blue.opacity(0.08) : ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 12))
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? ClashPalette.blue.opacity(0.4) : .clear))
+                                .background(selected ? palette.blue.opacity(0.08) : palette.surfaceMuted, in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? palette.blue.opacity(0.4) : .clear))
                             }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
                         }
                     }
@@ -349,23 +224,23 @@ struct DashboardView: View {
 
                 Card(title: "设备配置文件", subtitle: "切换路由器当前使用的配置", symbol: "doc.text") {
                     if !state.isConnected || state.snapshot.configs.isEmpty {
-                        Text("设备上还没有配置文件").foregroundStyle(.secondary).font(.callout).padding(.vertical, 6)
+                        Text("设备上还没有配置文件").foregroundStyle(.secondary).appFont(.callout).padding(.vertical, 6)
                     }
                     ForEach(state.isConnected ? state.snapshot.configs : []) { file in
                         HStack(spacing: 12) {
-                            GlyphBadge(symbol: "doc.text", color: file.current ? ClashPalette.green : ClashPalette.muted, size: 32)
+                            GlyphBadge(symbol: "doc.text", color: file.current ? palette.green : palette.muted, size: 32)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(file.name).font(.callout.weight(.medium)).lineLimit(1)
-                                Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+                                Text(file.name).appFont(.callout.weight(.medium)).lineLimit(1)
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).appFont(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             if file.current {
-                                Label("使用中", systemImage: "checkmark.circle.fill").font(.caption.weight(.medium)).foregroundStyle(ClashPalette.green)
+                                Label("使用中", systemImage: "checkmark.circle.fill").appFont(.caption.weight(.medium)).foregroundStyle(palette.green)
                             } else {
                                 Button("切换配置") { state.switchConfig(file) }.disabled(state.isBusy || !state.isConnected)
                             }
                         }
-                        .padding(10).background(ClashPalette.surfaceMuted, in: RoundedRectangle(cornerRadius: 11))
+                        .padding(10).background(palette.surfaceMuted, in: RoundedRectangle(cornerRadius: 11))
                     }
                 }
             }
@@ -378,7 +253,7 @@ struct DashboardView: View {
         return Card(
             title: "设备守护",
             subtitle: "安装在路由器上独立运行。筛选和阈值修改后需重新安装。",
-            symbol: "shield.lefthalf.filled", color: ClashPalette.green
+            symbol: "shield.lefthalf.filled", color: palette.green
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
@@ -386,7 +261,7 @@ struct DashboardView: View {
                         .fill(st.running && st.enabled ? Color.green : Color.secondary.opacity(0.45))
                         .frame(width: 8, height: 8)
                     Text(deviceFailoverHeadline(st))
-                        .font(.callout.weight(.medium))
+                        .appFont(.callout.weight(.medium))
                     Spacer()
                     if st.installed {
                         Toggle(
@@ -420,24 +295,24 @@ struct DashboardView: View {
                         Text("测一次当前节点")
                             .foregroundStyle(.secondary)
                     }
-                    .font(.callout)
+                    .appFont(.callout)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(st.phaseTitle)
-                        .font(.callout.weight(.medium))
+                        .appFont(.callout.weight(.medium))
                     Text(st.probeLine)
-                        .font(.system(.caption, design: .monospaced))
+                        .appFont(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     if let updated = st.updatedAt {
                         Text(updated, style: .relative)
-                            .font(.caption2)
+                            .appFont(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     if !st.log.isEmpty {
                         Text(st.log)
-                            .font(.system(.caption2, design: .monospaced))
+                            .appFont(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -453,7 +328,7 @@ struct DashboardView: View {
                         }
                         .controlSize(.large)
                         Text(url.absoluteString)
-                            .font(.system(.caption, design: .monospaced))
+                            .appFont(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
@@ -489,10 +364,10 @@ struct DashboardView: View {
     private var subscribeTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                WorkspaceBanner(symbol: "arrow.down.doc", title: "配置来源", detail: "添加或更新订阅，让路由器获取最新节点。", color: ClashPalette.blue)
+                WorkspaceBanner(symbol: "arrow.down.doc", title: "配置来源", detail: "添加或更新订阅，让路由器获取最新节点。", color: palette.blue)
                 HStack {
-                    Text("设备上的订阅").font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(ClashPalette.ink)
-                    Text("\(state.isConnected ? state.snapshot.subscriptions.count : 0)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Text("设备上的订阅").appFont(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(palette.ink)
+                    Text("\(state.isConnected ? state.snapshot.subscriptions.count : 0)").appFont(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     Spacer()
                     Button { addingSub = true } label: { Label("添加订阅", systemImage: "plus") }
                         .buttonStyle(ActionButtonStyle()).disabled(!state.isConnected || state.isBusy)
@@ -509,8 +384,8 @@ struct DashboardView: View {
                     }
                 }
                 HStack(spacing: 10) {
-                    Image(systemName: "internaldrive").foregroundStyle(ClashPalette.blue)
-                    Text("想在多台路由器之间复用订阅？").font(.callout).foregroundStyle(.secondary)
+                    Image(systemName: "internaldrive").foregroundStyle(palette.blue)
+                    Text("想在多台路由器之间复用订阅？").appFont(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button("打开本地配置") { section = .profile }.buttonStyle(ActionButtonStyle(filled: false))
                 }.padding(16).panelSurface(radius: 14)
@@ -521,17 +396,17 @@ struct DashboardView: View {
 
     private func subscriptionCard(_ sub: Subscription) -> some View {
         HStack(alignment: .top, spacing: 15) {
-            GlyphBadge(symbol: "shippingbox", color: sub.enabled ? ClashPalette.blue : ClashPalette.muted, size: 44)
+            GlyphBadge(symbol: "shippingbox", color: sub.enabled ? palette.blue : palette.muted, size: 44)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text(sub.name.isEmpty ? sub.section : sub.name).font(.system(size: 16, weight: .semibold, design: .rounded)).foregroundStyle(ClashPalette.ink)
-                    Text(sub.enabled ? "已启用" : "已停用").font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(sub.enabled ? ClashPalette.green : ClashPalette.muted)
+                    Text(sub.name.isEmpty ? sub.section : sub.name).appFont(.system(size: 16, weight: .semibold, design: .rounded)).foregroundStyle(palette.ink)
+                    Text(sub.enabled ? "已启用" : "已停用").appFont(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(sub.enabled ? palette.green : palette.muted)
                         .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background((sub.enabled ? ClashPalette.green : ClashPalette.muted).opacity(0.1), in: Capsule())
+                        .background((sub.enabled ? palette.green : palette.muted).opacity(0.1), in: Capsule())
                 }
-                Text(sub.address).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
-                Text("User-Agent · \(sub.userAgent)").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text(sub.address).appFont(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                Text("User-Agent · \(sub.userAgent)").appFont(.system(size: 10)).foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
             VStack(alignment: .trailing, spacing: 8) {
@@ -559,17 +434,17 @@ struct DashboardView: View {
                     TextField("例如 guzzoni.apple.com", text: $testHost).textFieldStyle(.roundedBorder)
                     if let hit = ruleTestHit {
                         HStack(spacing: 8) {
-                            Text(hit.type).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(ClashPalette.blue)
-                            Text(hit.proxy).font(.caption.weight(.semibold)).foregroundStyle(ClashPalette.green)
+                            Text(hit.type).appFont(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(palette.blue)
+                            Text(hit.proxy).appFont(.caption.weight(.semibold)).foregroundStyle(palette.green)
                             Spacer()
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(ClashPalette.green)
-                        }.padding(10).background(ClashPalette.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 9)).help(hit.line)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(palette.green)
+                        }.padding(10).background(palette.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 9)).help(hit.line)
                     } else {
                         Text(testHost.isEmpty ? "等待输入域名" : "未命中域名规则，可能由 GEOIP / MATCH 处理")
-                            .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
+                            .appFont(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
                     }
                 }
-                Card(title: "快速分流", subtitle: "写入所有已保存的路由器并重启核心", symbol: "arrow.triangle.branch", color: ClashPalette.cyan) {
+                Card(title: "快速分流", subtitle: "写入所有已保存的路由器并重启核心", symbol: "arrow.triangle.branch", color: palette.cyan) {
                     TextField("例如 douyin.com", text: $newDomain).textFieldStyle(.roundedBorder).onSubmit { addRule() }
                     HStack {
                         Picker("动作", selection: $newRuleProxy) {
@@ -584,8 +459,8 @@ struct DashboardView: View {
                 }
             }
             HStack {
-                Text("当前规则").font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(ClashPalette.ink)
-                Text("\(state.isConnected ? state.snapshot.rules.count : 0) 条").font(.caption).foregroundStyle(.secondary)
+                Text("当前规则").appFont(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(palette.ink)
+                Text("\(state.isConnected ? state.snapshot.rules.count : 0) 条").appFont(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
             if !state.isConnected || state.snapshot.rules.isEmpty {
@@ -599,15 +474,15 @@ struct DashboardView: View {
                             Text("目标")
                             Spacer()
                             Text("处理方式")
-                        }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal, 17).padding(.vertical, 13).background(ClashPalette.surfaceMuted)
+                        }.appFont(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal, 17).padding(.vertical, 13).background(palette.surfaceMuted)
                         ForEach(state.snapshot.rules) { rule in
                             HStack(spacing: 12) {
-                                Text(rule.type).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(ClashPalette.muted).frame(width: 140, alignment: .leading)
-                                Text(rule.payload.isEmpty ? "—" : rule.payload).font(.callout).lineLimit(1).textSelection(.enabled)
+                                Text(rule.type).appFont(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(palette.muted).frame(width: 140, alignment: .leading)
+                                Text(rule.payload.isEmpty ? "—" : rule.payload).appFont(.callout).lineLimit(1).textSelection(.enabled)
                                 Spacer(minLength: 8)
-                                Text(rule.proxy).font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(rule.proxy == "DIRECT" ? ClashPalette.green : (rule.proxy == "REJECT" ? ClashPalette.amber : ClashPalette.blue))
-                                    .padding(.horizontal, 8).padding(.vertical, 4).background(ClashPalette.surfaceMuted, in: Capsule())
+                                Text(rule.proxy).appFont(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(rule.proxy == "DIRECT" ? palette.green : (rule.proxy == "REJECT" ? palette.amber : palette.blue))
+                                    .padding(.horizontal, 8).padding(.vertical, 4).background(palette.surfaceMuted, in: Capsule())
                             }.padding(.horizontal, 17).padding(.vertical, 11)
                             Divider().padding(.horizontal, 17)
                         }
@@ -642,6 +517,7 @@ struct DashboardView: View {
 }
 
 struct SubscriptionEditor: View {
+    @ThemePalette private var palette
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     let subscription: Subscription?
@@ -681,9 +557,9 @@ struct SubscriptionEditor: View {
         }
         .padding(24)
         .frame(width: 560)
-        .background(ClashPalette.canvas)
-        .tint(ClashPalette.blue)
-        .foregroundStyle(ClashPalette.ink)
+        .background(palette.canvas)
+        .tint(palette.blue)
+        .foregroundStyle(palette.ink)
         .buttonStyle(ActionButtonStyle(filled: false))
     }
 

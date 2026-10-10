@@ -674,16 +674,20 @@ final class MaoMaoService: ClashBackend {
 
     private func loadTraffic() async throws -> TrafficSnapshot {
         let dict = try await clashJSON("/connections")
-        let up = JSONValue.int(dict["uploadTotal"])
-        let down = JSONValue.int(dict["downloadTotal"])
+        let counterReadAt = Date()
+        let up = TrafficCounter.parse(dict["uploadTotal"])
+        let down = TrafficCounter.parse(dict["downloadTotal"])
         return TrafficSnapshot(
             up: "",
             down: "",
-            upTotal: ByteCountFormatter.string(fromByteCount: Int64(up), countStyle: .file),
-            downTotal: ByteCountFormatter.string(fromByteCount: Int64(down), countStyle: .file),
+            upTotal: up.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "",
+            downTotal: down.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "",
             connections: JSONValue.array(dict["connections"]).count,
             cpu: "",
-            mem: ""
+            mem: "",
+            uploadBytes: up,
+            downloadBytes: down,
+            counterReadAt: counterReadAt
         )
     }
 
