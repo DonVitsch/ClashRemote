@@ -56,18 +56,48 @@ struct HTTPResponse: Sendable {
 
 final class HTTPClient: @unchecked Sendable {
     private let timeout: TimeInterval
+    private let session: URLSession
 
     init(timeout: TimeInterval = 8) {
         self.timeout = timeout
+        let config = URLSessionConfiguration.ephemeral
+        // 空代理字典 = 强制不走系统代理（FlClash/Clash），直连内网路由器
+        config.connectionProxyDictionary = [:]
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = timeout
+        config.httpShouldUsePipelining = true
+        config.httpCookieAcceptPolicy = .never
+        self.session = URLSession(configuration: config, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }
 
     func request(
         url: URL,
         method: String = "GET",
         headers: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> HTTPResponse {
-        try await DirectHTTP.request(url: url, method: method, headers: headers, body: body, timeout: timeout)
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout ?? self.timeout)
+        req.httpMethod = method
+        for (key, value) in headers {
+            req.setValue(value, forHTTPHeaderField: key)
+        }
+        req.httpBody = body
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.empty
+        }
+        var hdrs: [String: String] = [:]
+        for (key, value) in http.allHeaderFields {
+            guard let k = key as? String, let v = value as? String else { continue }
+            let lower = k.lowercased()
+            if let existing = hdrs[lower] {
+                hdrs[lower] = existing + "\n" + v
+            } else {
+                hdrs[lower] = v
+            }
+        }
+        return HTTPResponse(status: http.statusCode, data: data, headers: hdrs)
     }
 
     func jsonRPC(url: URL, payload: [String: Any], headers: [String: String] = [:]) async throws -> [String: Any] {
@@ -79,6 +109,19 @@ final class HTTPClient: @unchecked Sendable {
             throw HTTPError.httpStatus(response.status, response.text)
         }
         return try response.jsonDict()
+    }
+}
+
+/// 不自动跟随 3xx 重定向：luciLogin 的 302 响应里带 sysauth cookie，必须原样返回不能被 follow 掉。
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
 

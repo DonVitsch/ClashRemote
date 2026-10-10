@@ -9,7 +9,19 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "ClashRemote",
-            path: "Sources/ClashRemote"
+            path: "Sources/ClashRemote",
+            exclude: [
+                "Resources/node-failover.sh",
+                "Resources/install-on-device.sh",
+                "Resources/ufi-failover-plugin.js"
+            ],
+            resources: [
+                .copy("Resources/cr-failover.html")
+            ]
+        ),
+        .testTarget(
+            name: "ClashRemoteTests",
+            dependencies: ["ClashRemote"]
         )
     ]
 )

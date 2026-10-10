@@ -31,11 +31,58 @@ final class UFIClient {
         if let result = json["content"] as? String {
             return result
         }
-        return ""
+        // 绝不能把"没拿到结果"当成空字符串返回：调用方（如读配置再写回）会把
+        // 读取失败误判成"文件是空的"，从而用空内容覆盖掉路由器上的好配置。
+        throw HTTPError.message("路由器没有返回内容，命令可能超时或输出过大，请重试。")
     }
 
+    /// 读文件。
+    ///
+    /// **必须带重试**：内核重启时 clashctl 会重写、甚至短暂移走 config.yaml，
+    /// 后续步骤恰好撞上那个窗口就会误报「文件不存在 / 读取不完整」——
+    /// 之前就因为这个把「收敛策略组」这一步白白跳过了。
     func readFile(_ path: String) async throws -> String {
-        try await rootShell("cat \(shellEscape(path))", timeoutMS: 15_000)
+        var lastError: Error = HTTPError.message("路由器上没有 \(path)")
+        for attempt in 0..<6 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(2)) }
+            do {
+                return try await readFileOnce(path)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func readFileOnce(_ path: String) async throws -> String {
+        let escaped = shellEscape(path)
+        // 不能按字节数校验：root shell 的输出是走 $(...) 捕获回来的，会吞掉文件末尾的换行，
+        // 于是"9428 字节的文件只回来 9427 字节"这种差 1 字节的假失败会出现。
+        // 改成比对"双方都去掉末尾换行后"的 md5，能真正判断内容有没有被截断。
+        let digest = try await rootShell(
+            "if [ -f \(escaped) ]; then printf '%s' \"$(cat \(escaped))\" | md5sum | cut -d' ' -f1; else echo MISSING; fi",
+            timeoutMS: 30_000
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        if digest == "MISSING" {
+            throw HTTPError.message("路由器上没有 \(path)")
+        }
+        guard digest.count == 32 else {
+            throw HTTPError.message("无法校验 \(path) 的内容，已中止读取。")
+        }
+        let text = try await rootShell("cat \(escaped)", timeoutMS: 30_000)
+        guard md5Hex(text) == digest else {
+            throw HTTPError.message("\(path) 读取不完整（内容校验不一致），已中止，未做任何修改。")
+        }
+        return text
+    }
+
+    private func md5Hex(_ text: String) -> String {
+        let data = Data(text.utf8)
+        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+        data.withUnsafeBytes { ptr in
+            _ = CC_MD5(ptr.baseAddress, CC_LONG(data.count), &digest)
+        }
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     func writeFile(_ path: String, contents: String) async throws {
@@ -46,7 +93,16 @@ final class UFIClient {
         let cmd = """
         printf '%s' '\(b64)' | (base64 -d 2>/dev/null || base64 -D) > \(shellEscape(path))
         """
-        _ = try await rootShell(cmd, timeoutMS: 20_000)
+        _ = try await rootShell(cmd, timeoutMS: 60_000)
+        // 写完必须核对落盘大小：大文件经 root shell 传输有被截断的风险，
+        // 静默截断会让核心起不来而且没人知道原因。
+        let landSize = try await rootShell(
+            "wc -c < \(shellEscape(path))",
+            timeoutMS: 10_000
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let landed = Int(landSize), landed == data.count else {
+            throw HTTPError.message("写入 \(path) 后大小不符（期望 \(data.count) 字节，实际 \(landSize) 字节），配置可能已损坏。")
+        }
     }
 
     private func signedJSON(path: String, method: String, body: [String: Any]? = nil) async throws -> [String: Any] {

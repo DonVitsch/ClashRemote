@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0c0d12" />
+  <title>Clash Remote</title>
+  <style>
+    :root {
+      --bg: #0c0d12;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(255,255,255,.09);
+      --line: rgba(255,255,255,.1);
+      --text: #f5f7fb;
+      --muted: rgba(245,247,251,.58);
+      --ok: #32d74b;
+      --mid: #ffd60a;
+      --slow: #ff9f0a;
+      --bad: #ff453a;
+      --accent: #0a84ff;
+      --safe: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "SF Pro Text", sans-serif;
+      min-height: 100dvh;
+      padding-bottom: calc(12px + var(--safe));
+    }
+    header {
+      position: sticky; top: 0; z-index: 20;
+      padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 12px;
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter: saturate(160%) blur(20px);
+      -webkit-backdrop-filter: saturate(160%) blur(20px);
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { font-size: 1.28rem; letter-spacing: -.02em; margin: 0 0 10px; font-weight: 700; }
+    .modes { display: flex; gap: 6px; background: rgba(255,255,255,.06); padding: 4px; border-radius: 12px; }
+    .modes button {
+      flex: 1; border: 0; background: transparent; color: var(--muted);
+      padding: 8px 0; border-radius: 9px; font-weight: 650; font-size: .9rem;
+    }
+    .modes button.on { background: #fff; color: #111; }
+    main { max-width: 720px; margin: 0 auto; padding: 12px 14px 24px; }
+    .hero, .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .k { color: var(--muted); font-size: .72rem; font-weight: 600; }
+    .now { font-size: 1.18rem; font-weight: 720; letter-spacing: -.02em; margin: 4px 0 2px; word-break: break-all; }
+    .delay { font-variant-numeric: tabular-nums; font-weight: 700; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+    .dot.live { background: var(--ok); box-shadow: 0 0 0 4px rgba(50,215,75,.16); }
+    .dot.down { background: var(--bad); }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      appearance: none; border: 0; border-radius: 12px;
+      padding: 10px 12px; font-weight: 650; font-size: .86rem;
+      background: #fff; color: #111;
+    }
+    button.ghost { background: var(--card2); color: var(--text); }
+    button:disabled { opacity: .45; }
+    .search {
+      width: 100%; border: 0; border-radius: 12px; padding: 11px 12px;
+      background: var(--card); color: var(--text); font-size: 1rem;
+      outline: none; border: 1px solid var(--line); margin: 2px 0 10px;
+    }
+    .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+    .chips button { flex: none; padding: 7px 12px; background: var(--card); color: var(--text); }
+    .chips button.on { background: #fff; color: #111; }
+    .node {
+      width: 100%; text-align: left; background: var(--card); color: var(--text);
+      border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+      display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    }
+    .node.on { border-color: rgba(10,132,255,.7); background: rgba(10,132,255,.14); }
+    .node .name { flex: 1; min-width: 0; font-weight: 650; word-break: break-all; }
+    .node .ms { font-variant-numeric: tabular-nums; font-size: .84rem; font-weight: 700; }
+    .sec { font-size: .78rem; color: var(--muted); font-weight: 700; margin: 14px 2px 8px; }
+    .toast {
+      position: fixed; left: 50%; bottom: calc(18px + var(--safe));
+      transform: translateX(-50%);
+      background: #fff; color: #111; padding: 10px 14px; border-radius: 12px;
+      font-weight: 650; font-size: .86rem; display: none; z-index: 30;
+      max-width: 90vw;
+    }
+    .ok { color: var(--ok); } .mid { color: var(--mid); } .slow { color: var(--slow); } .bad { color: var(--bad); }
+    .muted { color: var(--muted); }
+    .count { color: var(--muted); font-size: .78rem; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clash Remote</h1>
+    <div class="modes" id="modes">
+      <button data-mode="rule">规则</button>
+      <button data-mode="global">全局</button>
+      <button data-mode="direct">直连</button>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="k">当前节点</div>
+      <div class="now" id="now">读取中…</div>
+      <div class="row">
+        <span class="delay" id="delay">—</span>
+        <span class="muted" id="traffic"></span>
+      </div>
+      <div class="btns">
+        <button id="pingNow">测当前</button>
+        <button class="ghost" id="pingAll">全部测速</button>
+        <button class="ghost" id="closeConn">清连接</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <div id="dot" class="dot"></div>
+        <div style="flex:1">
+          <div class="k">超时自动换</div>
+          <div id="phase" style="font-weight:700">—</div>
+        </div>
+        <button class="ghost" id="histBtn" type="button">历史</button>
+      </div>
+      <div class="muted" id="detail" style="margin-top:8px;font-variant-numeric:tabular-nums">—</div>
+      <div class="row" id="pinRow" style="margin-top:10px">
+        <span id="pinState" class="muted">—</span>
+        <button class="ghost" id="restoreBtn" type="button" style="margin-left:auto;display:none">恢复自动</button>
+      </div>
+    </section>
+    <section class="card" id="histCard" style="display:none">
+      <div class="k">切换历史</div>
+      <div id="histList" class="muted" style="margin-top:8px">还没有记录</div>
+    </section>
+
+    <div class="k" style="margin:2px 2px 6px">点节点 = 固定它：除非超时，否则不会被自动换走</div>
+    <input class="search" id="q" placeholder="搜索节点" enterkeyhint="search" />
+    <div class="row" style="margin-bottom:6px">
+      <div class="chips" id="regions"></div>
+      <div class="count" id="count"></div>
+    </div>
+    <div id="list"></div>
+  </main>
+  <div class="toast" id="toast"></div>
+  <script>
+    const SECRET = "123456";
+    const H = { Authorization: "Bearer " + SECRET, "Content-Type": "application/json" };
+    const PING_URL = "http://www.gstatic.com/generate_204";
+    const PREFERRED = ["选择节点", "节点选择", "漏网之鱼", "手动选择", "PROXY", "Proxy", "proxy", "代理"];
+    const HIDDEN = new Set(["DIRECT", "REJECT", "PASS", "COMPATIBLE", "Reject", "Direct", "MATCH", "REJECT-DROP"]);
+
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      mode: "rule",
+      proxies: {},
+      group: null,
+      now: "",
+      delays: {},
+      testing: new Set(),
+      region: "all",
+      q: "",
+      pingingAll: false,
+    };
+    // 守护脚本写在 cr-failover.json 里的固定状态
+    const daemon = { pinMode: 0, pin: "", auto: "" };
+
+    function toast(t) {
+      const el = $("toast");
+      el.textContent = t;
+      el.style.display = "block";
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.style.display = "none", 1800);
+    }
+
+    function delayClass(ms) {
+      if (ms == null) return "muted";
+      if (ms < 0) return "bad";
+      if (ms < 150) return "ok";
+      if (ms < 300) return "mid";
+      return "slow";
+    }
+    function delayText(name) {
+      if (state.testing.has(name)) return "测速中";
+      const ms = state.delays[name];
+      if (ms == null) return "—";
+      return ms < 0 ? "Timeout" : ms + " ms";
+    }
+    function regionOf(name) {
+      const n = name.toLowerCase();
+      if (name.includes("香港") || name.includes("🇭🇰") || n.includes("hongkong") || n.includes("hong kong") || /\bhk\b/i.test(name)) return "hk";
+      if (name.includes("新加坡") || name.includes("🇸🇬") || n.includes("singapore") || /\bsg\b/i.test(name)) return "sg";
+      return "other";
+    }
+    function isJunk(name) {
+      if (HIDDEN.has(name)) return true;
+      const n = name.toLowerCase();
+      return ["直连", "大陆", "国内", "境内", "剩余", "到期", "重置", "过期", "套餐", "流量", "官网", "🇨🇳"].some((x) => name.includes(x))
+        || n.includes("direct") || n.includes("reject") || n.includes("mainland") || n.includes("wulavpn");
+    }
+    function isGroup(p) { return p && Array.isArray(p.all) && p.all.length; }
+
+    async function api(path, opt = {}) {
+      const res = await fetch(path, { cache: "no-store", headers: H, ...opt });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(t.slice(0, 120) || ("HTTP " + res.status));
+      }
+      if (res.status === 204) return {};
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
+    }
+
+    function enc(name) { return encodeURIComponent(name); }
+
+    function preferredGroup() {
+      const groups = Object.values(state.proxies).filter(isGroup);
+      if (state.mode === "global") return state.proxies.GLOBAL || groups[0];
+      if (state.mode === "direct") return null;
+      const named = groups.filter((g) => g.name !== "GLOBAL" && !HIDDEN.has(g.name) && !isJunk(g.name));
+      for (const key of PREFERRED) {
+        const hit = named.find((g) => g.name === key || g.name.includes(key));
+        if (hit) return hit;
+      }
+      return named[0] || state.proxies.GLOBAL;
+    }
+
+    function flatten(root) {
+      const out = [];
+      const seen = new Set();
+      const walk = (g, depth) => {
+        if (!g || depth > 8) return;
+        for (const name of g.all || []) {
+          if (isJunk(name) || HIDDEN.has(name)) continue;
+          const child = state.proxies[name];
+          if (isGroup(child)) { walk(child, depth + 1); continue; }
+          if (!seen.add(name)) continue;
+          const hist = child && Array.isArray(child.history) ? child.history : [];
+          const last = hist.length ? hist[hist.length - 1].delay : null;
+          if (last != null && state.delays[name] == null) state.delays[name] = last || -1;
+          out.push({ name, type: (child && child.type) || "", owner: g.name });
+        }
+      };
+      walk(root, 0);
+      return out;
+    }
+
+    async function loadCore() {
+      const [cfg, px, conn] = await Promise.all([
+        api("/configs"),
+        api("/proxies"),
+        api("/connections").catch(() => ({})),
+      ]);
+      state.mode = (cfg.mode || "rule").toLowerCase();
+      state.proxies = px.proxies || {};
+      state.group = preferredGroup();
+      state.now = state.group && state.group.now ? state.group.now : (state.mode === "direct" ? "DIRECT" : "—");
+      const up = conn.uploadTotal || 0, down = conn.downloadTotal || 0;
+      $("traffic").textContent = "↓ " + fmt(down) + "  ↑ " + fmt(up);
+      paintModes();
+      paintNow();
+      paintList();
+    }
+
+    async function loadDaemon() {
+      try {
+        const d = await (await fetch("./cr-failover.json?t=" + Date.now(), { cache: "no-store" })).json();
+        const live = d.running && Number(d.enabled) === 1;
+        $("dot").className = "dot " + (live ? "live" : "down");
+        $("phase").textContent = live ? ("运行中 · 每 " + (d.interval || 5) + " 秒") : "守护没在跑";
+        $("detail").textContent = d.detail || "还没有测过";
+        daemon.pinMode = Number(d.pinMode) || 0;
+        daemon.pin = d.pin || "";
+        daemon.auto = d.auto || "";
+        paintPin();
+      } catch (e) {
+        $("phase").textContent = "读不到守护状态";
+        $("pinState").textContent = "";
+        $("restoreBtn").style.display = "none";
+      }
+    }
+
+    // 固定状态：守护脚本每轮都会把「现在固定在哪」写进 cr-failover.json。
+    function paintPin() {
+      const stateEl = $("pinState");
+      const btn = $("restoreBtn");
+      if (!daemon.pin) {
+        stateEl.textContent = daemon.pinMode ? "已固定当前节点（在 App 里打开的）" : "自动：按阈值换节点";
+        btn.style.display = "none";
+        return;
+      }
+      const why = daemon.pinMode ? "（App 里打开的固定）" : "（手动选过这个节点）";
+      stateEl.innerHTML = "🔒 已固定 <b>" + escapeHtml(daemon.pin) + "</b>" + why + "，只有超时才换";
+      // App 里打开的固定，浏览器这边点「恢复自动」也没用 —— 别给一个假的按钮。
+      btn.style.display = (!daemon.pinMode && daemon.auto && daemon.auto !== daemon.pin) ? "" : "none";
+    }
+
+    // 交回自动：把主组切回脚本上一次自己选定的节点，守护下一轮就恢复自动模式。
+    async function restoreAuto() {
+      if (daemon.pinMode) { toast("固定是在 App 里打开的，请到 App 里关掉"); return; }
+      if (!daemon.auto || !state.group) { toast("暂时没有可恢复的目标"); return; }
+      await api("/proxies/" + enc(state.group.name), { method: "PUT", body: JSON.stringify({ name: daemon.auto }) });
+      await api("/connections", { method: "DELETE" }).catch(() => {});
+      toast("已交回自动接管");
+      await loadCore();
+      await loadDaemon();
+    }
+
+    async function loadHistory() {
+      try {
+        const rows = await (await fetch("./cr-failover-history.json?t=" + Date.now(), { cache: "no-store" })).json();
+        const list = Array.isArray(rows) ? rows.slice().reverse() : [];
+        if (!list.length) {
+          $("histList").textContent = "还没有自动切换记录";
+          return;
+        }
+        $("histList").innerHTML = list.map((e) => {
+          const at = escapeHtml(e.at || "");
+          const from = escapeHtml(e.from || "—");
+          const to = escapeHtml(e.to || "—");
+          const ms = e.ms > 0 ? (e.ms + " ms") : "";
+          return `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+            <div class="k">${at}</div>
+            <div style="font-weight:700;margin-top:3px">${from}  →  ${to}</div>
+            <div class="muted">${ms}</div>
+          </div>`;
+        }).join("");
+      } catch (e) {
+        $("histList").textContent = "还没有自动切换记录";
+      }
+    }
+
+    function fmt(n) {
+      if (n < 1024) return n + " B";
+      const u = ["KB", "MB", "GB", "TB"];
+      let i = -1;
+      do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+      return n.toFixed(n >= 10 ? 0 : 1) + " " + u[i];
+    }
+
+    function paintModes() {
+      document.querySelectorAll("#modes button").forEach((b) => {
+        b.classList.toggle("on", b.dataset.mode === state.mode);
+      });
+    }
+
+    function paintNow() {
+      $("now").textContent = state.now || "—";
+      const ms = state.delays[state.now];
+      $("delay").className = "delay " + delayClass(ms);
+      $("delay").textContent = state.testing.has(state.now)
+        ? "测速中"
+        : (ms == null ? "未测延迟" : (ms < 0 ? "Timeout" : ms + " ms"));
+    }
+
+    function nodes() {
+      if (!state.group) return [];
+      let list = flatten(state.group);
+      if (state.region !== "all") list = list.filter((n) => regionOf(n.name) === state.region);
+      const q = state.q.trim().toLowerCase();
+      if (q) list = list.filter((n) => n.name.toLowerCase().includes(q));
+      return list;
+    }
+
+    function paintList() {
+      const list = nodes();
+      $("count").textContent = list.length + " 个";
+      const hk = list.filter((n) => regionOf(n.name) === "hk");
+      const sg = list.filter((n) => regionOf(n.name) === "sg");
+      const rest = list.filter((n) => regionOf(n.name) === "other");
+      const sections = [];
+      if (hk.length && sg.length && list.length >= 8 && state.region === "all") {
+        if (hk.length) sections.push(["香港", hk]);
+        if (sg.length) sections.push(["新加坡", sg]);
+        if (rest.length) sections.push(["其它", rest]);
+      } else {
+        sections.push([null, list]);
+      }
+      const html = sections.map(([title, arr]) => {
+        const head = title ? `<div class="sec">${title}</div>` : "";
+        const rows = arr.map((n) => {
+          const on = n.name === state.now ? " on" : "";
+          return `<button class="node${on}" data-name="${escapeAttr(n.name)}">
+            <span class="name">${escapeHtml(n.name)}</span>
+            <span class="ms ${delayClass(state.delays[n.name])}">${delayText(n.name)}</span>
+          </button>`;
+        }).join("");
+        return head + rows;
+      }).join("");
+      $("list").innerHTML = html || `<div class="muted">没有节点</div>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    async function setMode(mode) {
+      await api("/configs", { method: "PATCH", body: JSON.stringify({ mode }) });
+      await api("/connections", { method: "DELETE" }).catch(() => {});
+      state.mode = mode;
+      toast("已切到" + ({ rule: "规则", global: "全局", direct: "直连" }[mode]));
+      await loadCore();
+    }
+
+    async function selectNode(name) {
+      const group = state.group && state.group.name;
+      if (!group) return;
+      await api("/proxies/" + enc(group), { method: "PUT", body: JSON.stringify({ name }) });
+      if (state.mode === "global" && group !== "GLOBAL" && state.proxies.GLOBAL) {
+        const names = state.proxies.GLOBAL.all || [];
+        const gTarget = names.includes(name) ? name : (names.includes(group) ? group : null);
+        if (gTarget) await api("/proxies/GLOBAL", { method: "PUT", body: JSON.stringify({ name: gTarget }) });
+      }
+      await api("/connections", { method: "DELETE" }).catch(() => {});
+      state.now = name;
+      if (state.group) state.group.now = name;
+      paintNow();
+      paintList();
+      toast("已切换并固定");
+      await loadDaemon();
+      ping(name);
+    }
+
+    async function ping(name) {
+      state.testing.add(name);
+      paintNow();
+      paintList();
+      try {
+        const q = new URLSearchParams({ url: PING_URL, timeout: "5000" });
+        const d = await api("/proxies/" + enc(name) + "/delay?" + q);
+        state.delays[name] = d.delay > 0 ? d.delay : -1;
+      } catch (e) {
+        state.delays[name] = -1;
+      }
+      state.testing.delete(name);
+      paintNow();
+      paintList();
+      return state.delays[name];
+    }
+
+    async function pingAll() {
+      if (state.pingingAll) return;
+      const list = nodes().map((n) => n.name);
+      if (!list.length) return;
+      state.pingingAll = true;
+      $("pingAll").disabled = true;
+      $("pingAll").textContent = "测试中";
+      const chunk = 6;
+      for (let i = 0; i < list.length; i += chunk) {
+        await Promise.all(list.slice(i, i + chunk).map(ping));
+      }
+      state.pingingAll = false;
+      $("pingAll").disabled = false;
+      $("pingAll").textContent = "全部测速";
+      toast("测速完成");
+    }
+
+    $("modes").onclick = (e) => {
+      const b = e.target.closest("button");
+      if (b && b.dataset.mode) setMode(b.dataset.mode).catch((err) => toast(String(err)));
+    };
+    $("pingNow").onclick = () => {
+      if (state.now && state.now !== "DIRECT") ping(state.now);
+    };
+    $("pingAll").onclick = () => pingAll();
+    $("closeConn").onclick = () => {
+      api("/connections", { method: "DELETE" }).then(() => toast("已清连接")).catch((e) => toast(String(e)));
+    };
+    $("histBtn").onclick = () => {
+      const card = $("histCard");
+      const open = card.style.display === "none";
+      card.style.display = open ? "block" : "none";
+      if (open) loadHistory();
+    };
+    $("restoreBtn").onclick = () => restoreAuto().catch((err) => toast(String(err)));
+    $("q").oninput = (e) => { state.q = e.target.value; paintList(); };
+    $("list").onclick = (e) => {
+      const b = e.target.closest(".node");
+      if (b && b.dataset.name) selectNode(b.dataset.name).catch((err) => toast(String(err)));
+    };
+
+    $("regions").innerHTML = [
+      ["all", "全部"], ["hk", "香港"], ["sg", "新加坡"], ["other", "其它"],
+    ].map(([id, t]) => `<button data-r="${id}" class="${id === "all" ? "on" : ""}">${t}</button>`).join("");
+    $("regions").onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      state.region = b.dataset.r;
+      $("regions").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      paintList();
+    };
+
+    async function tick() {
+      try { await loadDaemon(); } catch (e) {}
+      try {
+        const px = await api("/proxies/" + enc(state.group ? state.group.name : "选择节点"));
+        if (px.now && px.now !== state.now) {
+          state.now = px.now;
+          if (state.group) state.group.now = px.now;
+          paintNow();
+          paintList();
+        }
+      } catch (e) {}
+    }
+
+    loadCore().then(loadDaemon).catch((e) => { $("now").textContent = String(e); });
+    setInterval(() => {
+      tick();
+      if ($("histCard").style.display !== "none") loadHistory();
+    }, 4000);
+  </script>
+</body>
+</html>

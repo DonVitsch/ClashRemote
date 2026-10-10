@@ -65,12 +65,6 @@ struct DeviceSidebar: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if let notice = state.notice {
-                NoticeBar(notice: notice)
-                    .padding(10)
-            }
-        }
     }
 }
 

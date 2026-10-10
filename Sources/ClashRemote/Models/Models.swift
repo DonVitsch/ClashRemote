@@ -215,9 +215,9 @@ struct ProxyItem: Identifiable, Hashable {
     var typeLabel: String {
         switch type.lowercased() {
         case "selector": "选择"
-        case "urltest": "自动"
+        case "urltest", "url-test": "自动"
         case "fallback": "故障转移"
-        case "loadbalance": "负载均衡"
+        case "loadbalance", "load-balance": "负载均衡"
         case "direct": "Direct"
         case "reject": "Reject"
         case "compatible": "兼容"
@@ -238,11 +238,47 @@ struct ProxyGroup: Identifiable, Hashable {
     var typeLabel: String {
         switch type.lowercased() {
         case "selector": "选择"
-        case "urltest": "自动"
+        case "urltest", "url-test": "自动"
         case "fallback": "故障转移"
-        case "loadbalance": "负载均衡"
+        case "loadbalance", "load-balance": "负载均衡"
+        case "relay": "中继"
         default: type
         }
+    }
+
+    /// Selector / URLTest / Fallback 等都可以用 Clash API 切换 now。
+    var allowsManualSelect: Bool {
+        Self.allowsManualSelect(type: type, name: name)
+    }
+
+    static func allowsManualSelect(type: String, name: String) -> Bool {
+        switch type.lowercased() {
+        case "selector", "urltest", "url-test", "fallback",
+             "loadbalance", "load-balance", "relay", "compatible":
+            return true
+        default:
+            return name == "GLOBAL"
+        }
+    }
+}
+
+/// 当前实际生效的叶子节点（策略组可能嵌套，需解析到具体节点）。
+struct ActiveNodeInfo: Equatable {
+    var rootGroup: String
+    var leafName: String
+    var chain: [String]
+
+    /// 完整链路，例如「节点选择 / 新加坡 / SG-xxx」。
+    var displayPath: String {
+        chain.joined(separator: " / ")
+    }
+
+    /// 叶子所属的策略组（嵌套时取倒数第二段）。
+    var ownerGroupName: String {
+        if chain.count >= 2 {
+            return chain[chain.count - 2]
+        }
+        return rootGroup
     }
 }
 
@@ -255,6 +291,66 @@ struct ClashRule: Identifiable, Hashable {
 
     var line: String {
         payload.isEmpty ? "\(type),\(proxy)" : "\(type),\(payload),\(proxy)"
+    }
+}
+
+struct FailoverEvent: Identifiable, Codable, Hashable {
+    var id: UUID
+    var at: Date
+    var from: String
+    var to: String
+    var delay: Int
+    var source: String
+
+    init(
+        id: UUID = UUID(),
+        at: Date = Date(),
+        from: String,
+        to: String,
+        delay: Int,
+        source: String
+    ) {
+        self.id = id
+        self.at = at
+        self.from = from
+        self.to = to
+        self.delay = delay
+        self.source = source
+    }
+}
+
+struct DeviceFailoverStatus: Equatable {
+    var installed = false
+    var hooked = false
+    var running = false
+    var enabled = true
+    var interval = 5
+    var detail = ""
+    var log = ""
+    var updatedAt: Date?
+
+    var isLive: Bool { installed && running && enabled }
+
+    var phaseTitle: String {
+        if !installed { return "还没装到设备" }
+        if !enabled { return "检测关着" }
+        if !running { return "守护没在跑" }
+        if detail.hasPrefix("pinned") { return "已固定当前节点，只有超时才换" }
+        if detail.hasPrefix("ok ") { return "刚才测过，节点是通的" }
+        if detail.hasPrefix("slow or timeout") || detail.hasPrefix("timeout") { return "当前节点超时，正在换" }
+        if detail.hasPrefix("switched") { return "刚换了节点" }
+        if detail.hasPrefix("no faster candidate") { return "没有更快的可用节点" }
+        if detail.hasPrefix("skip") { return "这一轮跳过" }
+        if detail.hasPrefix("excluded") { return "当前节点被排除，正在找替代" }
+        if detail.contains("not ready") { return "核心还没起来" }
+        if detail == "disabled" { return "检测关着" }
+        if detail.hasPrefix("loop start") { return "守护刚启动，等下一轮" }
+        return running ? "守护运行中" : "未知"
+    }
+
+    var probeLine: String {
+        if detail.isEmpty { return "还没有测过" }
+        return detail
     }
 }
 

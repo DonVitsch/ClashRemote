@@ -62,7 +62,8 @@ final class OpenClashClient {
             body: body
         )
         if let cookie = cookieValue(from: response, name: "sysauth_http")
-            ?? cookieValue(from: response, name: "sysauth") {
+            ?? cookieValue(from: response, name: "sysauth")
+            ?? cookieValue(from: response, name: "sysauth_https") {
             luciCookie = cookie
         }
         if luciCookie.isEmpty, (200..<400).contains(response.status) {
@@ -131,7 +132,7 @@ final class OpenClashClient {
         _ = try await ubus(object: "uci", method: "commit", params: ["config": config])
     }
 
-    func luciGet(_ path: String, query: [String: String] = [:]) async throws -> [String: Any] {
+    func luciGet(_ path: String, query: [String: String] = [:], timeout: TimeInterval? = nil) async throws -> [String: Any] {
         var components = URLComponents(
             url: luciBase.appending(path: "cgi-bin/luci/\(path)"),
             resolvingAgainstBaseURL: false
@@ -140,11 +141,30 @@ final class OpenClashClient {
             components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         guard let url = components?.url else { throw HTTPError.badURL }
-        var headers: [String: String] = [:]
-        if !luciCookie.isEmpty {
-            headers["Cookie"] = "sysauth_http=\(luciCookie)"
-        }
-        let response = try await http.request(url: url, headers: headers)
+        let response = try await http.request(url: url, headers: luciHeaders(), timeout: timeout)
+        return try decodeLuCI(response)
+    }
+
+    func luciPostForm(_ path: String, fields: [String: String], timeout: TimeInterval? = nil) async throws -> [String: Any] {
+        let url = luciBase.appending(path: "cgi-bin/luci/\(path)")
+        var headers = luciHeaders()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        let response = try await http.request(
+            url: url,
+            method: "POST",
+            headers: headers,
+            body: form(fields),
+            timeout: timeout
+        )
+        return try decodeLuCI(response)
+    }
+
+    private func luciHeaders() -> [String: String] {
+        guard !luciCookie.isEmpty else { return [:] }
+        return ["Cookie": "sysauth_http=\(luciCookie); sysauth=\(luciCookie); sysauth_https=\(luciCookie)"]
+    }
+
+    private func decodeLuCI(_ response: HTTPResponse) throws -> [String: Any] {
         if response.status == 403 || response.status == 401 {
             throw HTTPError.message("LuCI 会话失效，请重新连接")
         }
@@ -152,24 +172,14 @@ final class OpenClashClient {
             throw HTTPError.httpStatus(response.status, response.text)
         }
         if response.data.isEmpty { return [:] }
+        let text = response.text
+        if text.localizedCaseInsensitiveContains("login") && text.localizedCaseInsensitiveContains("<html") {
+            throw HTTPError.message("LuCI 会话失效，请重新连接")
+        }
         if let obj = try? response.jsonObject() {
             return obj as? [String: Any] ?? ["value": obj]
         }
-        return ["raw": response.text]
-    }
-
-    func luciPostForm(_ path: String, fields: [String: String]) async throws -> [String: Any] {
-        let url = luciBase.appending(path: "cgi-bin/luci/\(path)")
-        var headers = ["Content-Type": "application/x-www-form-urlencoded"]
-        if !luciCookie.isEmpty {
-            headers["Cookie"] = "sysauth_http=\(luciCookie)"
-        }
-        let response = try await http.request(url: url, method: "POST", headers: headers, body: form(fields))
-        if response.status >= 400 {
-            throw HTTPError.httpStatus(response.status, response.text)
-        }
-        if response.data.isEmpty { return [:] }
-        return (try? response.jsonDict()) ?? ["raw": response.text]
+        return ["raw": text]
     }
 
     func loadClashEndpoint(from status: [String: Any], uci: [String: [String: Any]]) {
@@ -193,11 +203,46 @@ final class OpenClashClient {
         return url
     }
 
+    func fileRead(_ path: String) async throws -> String {
+        let data = JSONValue.dict(try await ubus(object: "file", method: "read", params: ["path": path]))
+        return JSONValue.string(data["data"])
+    }
+
+    func fileWrite(_ path: String, contents: String) async throws {
+        _ = try await ubus(
+            object: "file",
+            method: "write",
+            params: ["path": path, "data": contents]
+        )
+    }
+
+    @discardableResult
+    func fileExec(_ command: String, timeoutMS: Int = 15_000) async throws -> String {
+        let data = JSONValue.dict(
+            try await ubus(
+                object: "file",
+                method: "exec",
+                params: [
+                    "command": "/bin/sh",
+                    "params": ["-c", command]
+                ]
+            )
+        )
+        let stdout = JSONValue.string(data["stdout"])
+        let stderr = JSONValue.string(data["stderr"])
+        let code = JSONValue.int(data["code"])
+        if code != 0, stdout.isEmpty {
+            throw HTTPError.message(stderr.isEmpty ? "路由器命令失败 (\(code))" : stderr)
+        }
+        return stdout.isEmpty ? stderr : stdout
+    }
+
     func clashRequest(
         path: String,
         method: String = "GET",
         query: [String: String] = [:],
-        json: [String: Any]? = nil
+        json: [String: Any]? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> HTTPResponse {
         let url = try clashURL(path, query: query)
         var headers = ["Authorization": "Bearer \(clashSecret)"]
@@ -206,7 +251,7 @@ final class OpenClashClient {
             headers["Content-Type"] = "application/json"
             body = try JSONSerialization.data(withJSONObject: json)
         }
-        let response = try await http.request(url: url, method: method, headers: headers, body: body)
+        let response = try await http.request(url: url, method: method, headers: headers, body: body, timeout: timeout)
         if response.status >= 400 {
             throw HTTPError.httpStatus(response.status, response.text)
         }

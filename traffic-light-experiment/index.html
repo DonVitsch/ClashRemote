@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>十字路口交通信号灯 · 进程同步实验</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f7f5f0;
+    --bg-soft: #efe9da;
+    --card: #ffffff;
+    --line: #e6dfce;
+    --line-soft: #f0ebde;
+    --ink: #14171e;
+    --ink-soft: #3a4256;
+    --muted: #7c7a72;
+    --primary: #2f6f5e;
+    --primary-soft: rgba(47,111,94,0.08);
+    --danger: #b06367;
+    --danger-soft: rgba(176,99,103,0.08);
+    --warn: #c97b3f;
+    --code-bg: #1c1f24;
+    --code-fg: #e6e1d7;
+    --code-key: #7fb89a;
+    --code-fn: #e2b87b;
+    --code-str: #c98a6e;
+    --code-cmt: #6b7378;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: 'Outfit', -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 64px 32px 96px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    padding: 0 0 40px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 56px;
+    position: relative;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -120px; right: -120px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(47,111,94,0.10), transparent 70%);
+    pointer-events: none;
+  }
+  .hero .tag {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 18px;
+    font-weight: 500;
+  }
+  .hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 38px;
+    line-height: 1.15;
+    letter-spacing: -0.005em;
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+  .hero .sub {
+    font-size: 17px;
+    color: var(--ink-soft);
+    max-width: 640px;
+    margin: 0;
+  }
+
+  /* ---------- SECTION ---------- */
+  section { margin-bottom: 64px; }
+  .sec-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--primary);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  h2 {
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 26px;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+    margin: 0 0 8px;
+  }
+  h2 .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--primary);
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  .lead {
+    color: var(--muted);
+    font-size: 15px;
+    margin: 0 0 28px;
+    max-width: 680px;
+  }
+
+  /* ---------- CARDS / TABLES / KV ---------- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .wrap { padding: 40px 20px 64px; }
+    .hero h1 { font-size: 30px; }
+  }
+
+  .kv { display: grid; grid-template-columns: 110px 1fr; row-gap: 12px; column-gap: 16px; margin: 0; }
+  .kv dt { color: var(--muted); font-size: 13px; }
+  .kv dd { margin: 0; color: var(--ink); font-size: 14px; }
+
+  .assumption {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 14px 16px; border-radius: 10px;
+    background: var(--primary-soft);
+    border-left: 3px solid var(--primary);
+  }
+  .assumption .ic {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    margin-top: 1px;
+    color: var(--primary);
+  }
+  .assumption p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+  .assumption b { color: var(--ink); }
+
+  /* ---------- CODE ---------- */
+  .code-wrap {
+    background: var(--code-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px -4px rgba(0,0,0,0.10);
+  }
+  .code-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 18px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #a8a59c;
+  }
+  .code-head .dots { display: flex; gap: 6px; }
+  .code-head .dots span { width: 10px; height: 10px; border-radius: 50%; }
+  .code-head .dots span:nth-child(1) { background: #e06c75; }
+  .code-head .dots span:nth-child(2) { background: #e5c07b; }
+  .code-head .dots span:nth-child(3) { background: #98c379; }
+  pre.code {
+    margin: 0;
+    padding: 20px 22px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--code-fg);
+  }
+  .tk-kw { color: var(--code-key); }
+  .tk-fn { color: var(--code-fn); }
+  .tk-st { color: var(--code-str); }
+  .tk-cm { color: var(--code-cmt); font-style: italic; }
+  .tk-nm { color: #d4a3e0; }
+
+  /* ---------- CROSSROAD SVG ---------- */
+  .crossroad-wrap {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex; gap: 24px; align-items: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  }
+  @media (max-width: 720px) { .crossroad-wrap { flex-direction: column; } }
+  .crossroad-wrap svg { flex-shrink: 0; }
+  .crossroad-info { flex: 1; }
+  .crossroad-info h4 { margin: 0 0 10px; font-size: 15px; color: var(--ink); font-weight: 600; }
+  .crossroad-info ul { margin: 0; padding-left: 0; list-style: none; font-size: 13px; color: var(--ink-soft); }
+  .crossroad-info li { padding: 4px 0; display: flex; gap: 8px; align-items: baseline; }
+  .crossroad-info li::before { content: "→"; color: var(--primary); flex-shrink: 0; }
+
+  /* ---------- TIMELINE ---------- */
+  .timeline { list-style: none; padding: 0; margin: 0; position: relative; }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 11px; top: 6px; bottom: 6px;
+    width: 2px;
+    background: var(--primary);
+    opacity: 0.25;
+  }
+  .timeline li {
+    position: relative;
+    padding: 0 0 22px 38px;
+  }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: 5px; top: 4px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--primary);
+  }
+  .timeline li b { color: var(--ink); display: block; margin-bottom: 2px; }
+  .timeline li p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+
+  /* ---------- TIMING DIAGRAM ---------- */
+  .timing {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px 24px;
+    overflow-x: auto;
+  }
+  .timing-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .timing-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .timing-track {
+    display: flex;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-soft);
+  }
+  .timing-cell {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: white;
+    border-right: 1px solid rgba(255,255,255,0.4);
+    position: relative;
+  }
+  .timing-cell:last-child { border-right: none; }
+  .timing-cell.green { background: var(--primary); }
+  .timing-cell.red { background: var(--danger); }
+  .timing-cell.gray { background: var(--bg-soft); color: var(--muted); }
+  .timing-axis {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 12px;
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .timing-axis .axis-track {
+    display: flex;
+  }
+  .timing-axis .axis-tick {
+    flex: 1;
+    text-align: left;
+    padding-left: 4px;
+  }
+
+  /* ---------- ANIMATION ---------- */
+  .sim {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  }
+  .sim-controls {
+    display: flex; gap: 12px; align-items: center;
+    margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .sim-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .sim-btn:hover { background: #245a4b; transform: translateY(-1px); }
+  .sim-btn.secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+  .sim-btn.secondary:hover { background: var(--primary-soft); }
+  .sim-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .sim-svg-wrap {
+    background: #2c3038;
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+  }
+  .sim-log {
+    margin-top: 16px;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--code-fg);
+    height: 140px;
+    overflow-y: auto;
+  }
+  .sim-log .ns { color: var(--code-key); }
+  .sim-log .ew { color: var(--code-fn); }
+  .sim-log .light { color: var(--code-str); }
+
+  /* ---------- KEY POINTS ---------- */
+  .points { display: grid; gap: 14px; }
+  .point {
+    display: flex; gap: 14px;
+    padding: 18px 20px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .point-num {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--primary-soft);
+    color: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .point-body h4 { margin: 0 0 4px; font-size: 14px; color: var(--ink); font-weight: 600; }
+  .point-body p { margin: 0; font-size: 13.5px; color: var(--ink-soft); line-height: 1.55; }
+
+  /* ---------- EXERCISE ---------- */
+  .exercise {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .exercise h4 { margin: 0 0 6px; font-size: 15px; color: var(--ink); font-weight: 600; }
+  .exercise h4 .ic { color: var(--warn); margin-right: 6px; vertical-align: -3px; }
+  .exercise p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+  .exercise + .exercise { margin-top: 12px; }
+
+  /* ---------- FOOTER ---------- */
+  footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============== HERO ============== -->
+  <header class="hero">
+    <span class="tag">实验一 · 进程同步</span>
+    <h1>十字路口交通信号灯管理</h1>
+    <p class="sub">用一个真实的城市路口，把<strong>临界资源、互斥、信号量、P/V 操作</strong>这些抽象概念，变成看得见的运行过程。</p>
+  </header>
+
+  <!-- ============== §1 翻译问题 ============== -->
+  <section>
+    <div class="sec-num">01</div>
+    <h2><span class="dot"></span>把"路口"翻译成"操作系统"</h2>
+    <p class="lead">第一步是把日常问题抽象化。看起来平平无奇的红绿灯，其实就是一个教科书级别的并发问题。</p>
+
+    <div class="crossroad-wrap">
+      <svg width="180" height="180" viewBox="0 0 180 180">
+        <!-- 路面 -->
+        <rect x="0" y="0" width="180" height="180" fill="#3a4256"/>
+        <!-- 南北道路 -->
+        <rect x="68" y="0" width="44" height="180" fill="#4a5266"/>
+        <!-- 东西道路 -->
+        <rect x="0" y="68" width="180" height="44" fill="#4a5266"/>
+        <!-- 中央路口 -->
+        <rect x="68" y="68" width="44" height="44" fill="#525a6e"/>
+        <!-- 道路虚线 -->
+        <line x1="90" y1="0" x2="90" y2="68" stroke="#e6b34a" stroke-width="1.5" stroke-dasharray="3 4"/>
+        <line x1="90" y1="112" x2="90" y2="180" stroke="#e6b34a" stroke-width="1.5" stroke-dasharray="3 4"/>
+        <line x1="0" y1="90" x2="68" y2="90" stroke="#e6b34a" stroke-width="1.5" stroke-dasharray="3 4"/>
+        <line x1="112" y1="90" x2="180" y2="90" stroke="#e6b34a" stroke-width="1.5" stroke-dasharray="3 4"/>
+        <!-- 信号灯：南北 -->
+        <circle cx="58" cy="78" r="6" fill="#2f6f5e"/>
+        <circle cx="58" cy="102" r="6" fill="#b06367"/>
+        <!-- 信号灯：东西 -->
+        <circle cx="78" cy="58" r="6" fill="#b06367"/>
+        <circle cx="102" cy="58" r="6" fill="#2f6f5e"/>
+      </svg>
+      <div class="crossroad-info">
+        <h4>现实问题 ↔ 操作系统概念</h4>
+        <ul>
+          <li><strong>十字路口</strong> &nbsp;=&nbsp; 临界资源（critical resource）</li>
+          <li><strong>南北/东西车流</strong> &nbsp;=&nbsp; 多个并发进程（processes）</li>
+          <li><strong>同时通行</strong> &nbsp;=&nbsp; 数据竞争 → 撞车</li>
+          <li><strong>红绿灯</strong> &nbsp;=&nbsp; 同步机制（synchronization）</li>
+          <li><strong>红绿切换</strong> &nbsp;=&nbsp; P/V 操作（信号量原语）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== §2 简化假设 ============== -->
+  <section>
+    <div class="sec-num">02</div>
+    <h2><span class="dot"></span>简化模型：适合初学者</h2>
+    <p class="lead">真实路口很复杂（黄灯、左转、行人、感应触发…）。先把"主轴"理清楚，再一点点加东西。下面这些假设，是为了让模型可以被完整理解。</p>
+
+    <div class="grid-2">
+      <div class="assumption">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <p><b>只有红绿，没有黄灯。</b>切换是<b>瞬时</b>的，没有过渡相位。</p>
+      </div>
+      <div class="assumption">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M12 3v18"/></svg>
+        <p><b>4 个方向归并为 2 组：</b>南+北 看作一组，东+西 看作一组。</p>
+      </div>
+      <div class="assumption">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <p><b>固定时长：</b>每组绿灯各持续 T 秒，循环切换。</p>
+      </div>
+      <div class="assumption">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2"/><path d="M7 14h6"/></svg>
+        <p><b>每辆车 = 一个线程。</b>车到了就尝试通过路口。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== §3 信号量设计 ============== -->
+  <section>
+    <div class="sec-num">03</div>
+    <h2><span class="dot"></span>核心：信号量怎么设计</h2>
+    <p class="lead">信号量是 Dijkstra 提出来的同步原语。对应的就是 acquire/release 两个动作，也叫 P/V。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4 style="margin:0 0 14px; font-size:14px; font-weight:600;">思路</h4>
+        <dl class="kv">
+          <dt>临界资源</dt><dd>路口（一次只能一个方向占用）</dd>
+          <dt>互斥要求</dt><dd>南北绿 ↔ 东西红，二者必须互斥</dd>
+          <dt>同步方法</dt><dd>两个信号量，分配"通行许可证"</dd>
+          <dt>许可证总数</dt><dd>恒等于 1（在两组之间转移）</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <h4 style="margin:0 0 14px; font-size:14px; font-weight:600;">PV 操作</h4>
+        <dl class="kv">
+          <dt><span style="color:var(--primary); font-family:'JetBrains Mono';">P(s)</span></dt><dd>申请一个资源，s 值 -1。若 s&lt;0 则阻塞</dd>
+          <dt><span style="color:var(--warn); font-family:'JetBrains Mono';">V(s)</span></dt><dd>释放一个资源，s 值 +1。若有等待者则唤醒</dd>
+          <dt>对应 Python</dt><dd><code style="font-family:'JetBrains Mono';">s.acquire() / s.release()</code></dd>
+          <dt>本质</dt><dd>操作系统保证 P/V 是<b>原子操作</b>（不可被打断）</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div style="margin-top:24px;">
+      <div class="card">
+        <h4 style="margin:0 0 16px; font-size:14px; font-weight:600;">状态转移：信号灯切换的瞬间</h4>
+        <div style="display:grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap:12px; align-items:center; font-size:13px;">
+          <div style="background:var(--primary-soft); padding:14px; border-radius:8px; text-align:center;">
+            <div style="color:var(--muted); font-size:11px; font-family:'JetBrains Mono';">阶段 1</div>
+            <div style="font-weight:600; margin:4px 0;">南北绿、东西红</div>
+            <code style="font-family:'JetBrains Mono'; font-size:11px;">ns_go = 1, ew_go = 0</code>
+          </div>
+          <div style="text-align:center; color:var(--primary);">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+            <div style="font-family:'JetBrains Mono'; font-size:10px; margin-top:-4px;">P(ns) + V(ew)</div>
+          </div>
+          <div style="background:var(--danger-soft); padding:14px; border-radius:8px; text-align:center;">
+            <div style="color:var(--muted); font-size:11px; font-family:'JetBrains Mono';">阶段 2</div>
+            <div style="font-weight:600; margin:4px 0;">东西绿、南北红</div>
+            <code style="font-family:'JetBrains Mono'; font-size:11px;">ns_go = 0, ew_go = 1</code>
+          </div>
+          <div style="text-align:center; color:var(--primary);">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+            <div style="font-family:'JetBrains Mono'; font-size:10px; margin-top:-4px;">P(ew) + V(ns)</div>
+          </div>
+          <div style="background:var(--primary-soft); padding:14px; border-radius:8px; text-align:center;">
+            <div style="color:var(--muted); font-size:11px; font-family:'JetBrains Mono';">回到阶段 1</div>
+            <div style="font-weight:600; margin:4px 0;">南北绿、东西红</div>
+            <code style="font-family:'JetBrains Mono'; font-size:11px;">ns_go = 1, ew_go = 0</code>
+          </div>
+        </div>
+        <p style="margin: 16px 0 0; font-size: 13px; color: var(--muted);">关键点：<b>许可证总数恒为 1</b>，只是在切换时从一组"转移"到另一组。这就是教科书里讲的<b>"信号量作为同步工具"</b>的用法。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== §4 Python 代码 ============== -->
+  <section>
+    <div class="sec-num">04</div>
+    <h2><span class="dot"></span>Python 完整实现</h2>
+    <p class="lead">用 <code style="font-family:'JetBrains Mono'; background:var(--bg-soft); padding:2px 6px; border-radius:4px;">threading.Semaphore</code> 模拟 PV 操作。复制即可运行。</p>
+
+    <div class="code-wrap">
+      <div class="code-head">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>traffic_light.py</span>
+        <span style="opacity:0.4;">Python 3</span>
+      </div>
+<pre class="code"><span class="tk-cm">"""
+十字路口交通信号灯管理（最简化模型）
+- 只考虑红绿两色，瞬时切换
+- 4 方向归并为 2 组（南北 / 东西）
+- 用两个信号量分别控制两组通行权
+"""</span>
+<span class="tk-kw">import</span> threading
+<span class="tk-kw">import</span> time
+<span class="tk-kw">import</span> random
+
+<span class="tk-cm"># ============ 信号量定义 ============</span>
+<span class="tk-cm"># 初始状态：南北通行、东西等待</span>
+ns_go <span class="tk-kw">=</span> threading.<span class="tk-fn">Semaphore</span>(<span class="tk-nm">1</span>)   <span class="tk-cm"># 南北的"通行证"</span>
+ew_go <span class="tk-kw">=</span> threading.<span class="tk-fn">Semaphore</span>(<span class="tk-nm">0</span>)   <span class="tk-cm"># 东西的"通行证"</span>
+
+NS_GREEN_TIME <span class="tk-kw">=</span> <span class="tk-nm">4</span>   <span class="tk-cm"># 南北绿灯持续秒数</span>
+EW_GREEN_TIME <span class="tk-kw">=</span> <span class="tk-nm">4</span>   <span class="tk-cm"># 东西绿灯持续秒数</span>
+
+
+<span class="tk-cm"># ============ 车辆线程 ============</span>
+<span class="tk-kw">def</span> <span class="tk-fn">ns_car</span>(car_id):
+    <span class="tk-cm">"""南北方向的车：每辆都是一个'进程'"""</span>
+    <span class="tk-kw">while</span> <span class="tk-nm">True</span>:
+        ns_go.<span class="tk-fn">acquire</span>()          <span class="tk-cm"># P(ns_go)：申请南北通行证</span>
+        <span class="tk-fn">print</span>(<span class="tk-st">f"  [南北] 车 </span><span class="tk-st">{car_id:02d}</span><span class="tk-st"> 通过路口 @ </span><span class="tk-st">{time.strftime('%H:%M:%S')}</span><span class="tk-st">"</span>)
+        time.<span class="tk-fn">sleep</span>(<span class="tk-nm">0.3</span>)             <span class="tk-cm"># 模拟通过路口用时</span>
+        <span class="tk-cm"># 注意：通过后不 release —— 由信号灯在切换时统一收回</span>
+
+
+<span class="tk-kw">def</span> <span class="tk-fn">ew_car</span>(car_id):
+    <span class="tk-kw">while</span> <span class="tk-nm">True</span>:
+        ew_go.<span class="tk-fn">acquire</span>()          <span class="tk-cm"># P(ew_go)：申请东西通行证</span>
+        <span class="tk-fn">print</span>(<span class="tk-st">f"  [东西] 车 </span><span class="tk-st">{car_id:02d}</span><span class="tk-st"> 通过路口 @ </span><span class="tk-st">{time.strftime('%H:%M:%S')}</span><span class="tk-st">"</span>)
+        time.<span class="tk-fn">sleep</span>(<span class="tk-nm">0.3</span>)
+
+
+<span class="tk-cm"># ============ 信号灯主控线程 ============</span>
+<span class="tk-kw">def</span> <span class="tk-fn">light_controller</span>():
+    <span class="tk-cm">"""周期性切换红绿红绿……"""</span>
+    cycle <span class="tk-kw">=</span> <span class="tk-nm">0</span>
+    <span class="tk-kw">while</span> <span class="tk-nm">True</span>:
+        cycle <span class="tk-kw">+=</span> <span class="tk-nm">1</span>
+
+        <span class="tk-kw">if</span> cycle <span class="tk-kw">%</span> <span class="tk-nm">2</span> <span class="tk-kw">==</span> <span class="tk-nm">1</span>:
+            <span class="tk-cm"># ---------- 阶段 A：南北绿、东西红 ----------</span>
+            <span class="tk-fn">print</span>(<span class="tk-st">f"</span><span class="tk-st">\n</span><span class="tk-st">[信号灯] 南北【绿】 东西【红】 持续 </span><span class="tk-st">{NS_GREEN_TIME}</span><span class="tk-st">s"</span>)
+            time.<span class="tk-fn">sleep</span>(NS_GREEN_TIME)
+
+            <span class="tk-cm"># 切换：把通行证从 NS 收回，发放给 EW</span>
+            <span class="tk-cm"># 用非阻塞 acquire 收回（若已被消费则返回，不影响）</span>
+            <span class="tk-kw">if</span> ns_go.<span class="tk-fn">acquire</span>(blocking=<span class="tk-nm">False</span>): <span class="tk-kw">pass</span>
+            ew_go.<span class="tk-fn">release</span>()           <span class="tk-cm"># V(ew_go)</span>
+
+        <span class="tk-kw">else</span>:
+            <span class="tk-cm"># ---------- 阶段 B：东西绿、南北红 ----------</span>
+            <span class="tk-fn">print</span>(<span class="tk-st">f"</span><span class="tk-st">\n</span><span class="tk-st">[信号灯] 东西【绿】 南北【红】 持续 </span><span class="tk-st">{EW_GREEN_TIME}</span><span class="tk-st">s"</span>)
+            time.<span class="tk-fn">sleep</span>(EW_GREEN_TIME)
+
+            <span class="tk-cm"># 切换：把通行证从 EW 收回，发放给 NS</span>
+            <span class="tk-kw">if</span> ew_go.<span class="tk-fn">acquire</span>(blocking=<span class="tk-nm">False</span>): <span class="tk-kw">pass</span>
+            ns_go.<span class="tk-fn">release</span>()           <span class="tk-cm"># V(ns_go)</span>
+
+
+<span class="tk-cm"># ============ 启动 ============</span>
+<span class="tk-kw">if</span> <span class="tk-fn">__name__</span> <span class="tk-kw">==</span> <span class="tk-st">"__main__"</span>:
+    threads <span class="tk-kw">=</span> []
+
+    <span class="tk-cm"># 1 个信号灯主控</span>
+    t <span class="tk-kw">=</span> threading.<span class="tk-fn">Thread</span>(target=light_controller, daemon=<span class="tk-nm">True</span>)
+    t.<span class="tk-fn">start</span>()
+
+    <span class="tk-cm"># 3 辆南北车 + 3 辆东西车</span>
+    <span class="tk-kw">for</span> i <span class="tk-kw">in</span> <span class="tk-fn">range</span>(<span class="tk-nm">3</span>):
+        threading.<span class="tk-fn">Thread</span>(target=ns_car, args=(i+<span class="tk-nm">1</span>,), daemon=<span class="tk-nm">True</span>).<span class="tk-fn">start</span>()
+        threading.<span class="tk-fn">Thread</span>(target=ew_car, args=(i+<span class="tk-nm">1</span>,), daemon=<span class="tk-nm">True</span>).<span class="tk-fn">start</span>()
+
+    time.<span class="tk-fn">sleep</span>(<span class="tk-nm">20</span>)     <span class="tk-cm"># 跑 20 秒看效果</span>
+    <span class="tk-fn">print</span>(<span class="tk-st">"\n[主] 实验结束。"</span>)
+</pre>
+    </div>
+
+    <div style="margin-top:14px; font-size:13px; color:var(--muted);">
+      ▶ 运行命令：<code style="font-family:'JetBrains Mono'; background:var(--bg-soft); padding:2px 6px; border-radius:4px;">python3 traffic_light.py</code>
+    </div>
+  </section>
+
+  <!-- ============== §5 时序图 ============== -->
+  <section>
+    <div class="sec-num">05</div>
+    <h2><span class="dot"></span>运行时序图</h2>
+    <p class="lead">运行起来后，输出大致是这个节奏：每次绿灯期间，对应方向的车按顺序通过，切换瞬间另一组立刻被锁住。</p>
+
+    <div class="timing">
+      <div class="timing-row">
+        <div class="timing-label">南北方向</div>
+        <div class="timing-track">
+          <div class="timing-cell green">绿</div>
+          <div class="timing-cell red">红</div>
+          <div class="timing-cell green">绿</div>
+          <div class="timing-cell red">红</div>
+          <div class="timing-cell green">绿</div>
+        </div>
+      </div>
+      <div class="timing-row">
+        <div class="timing-label">东西方向</div>
+        <div class="timing-track">
+          <div class="timing-cell red">红</div>
+          <div class="timing-cell green">绿</div>
+          <div class="timing-cell red">红</div>
+          <div class="timing-cell green">绿</div>
+          <div class="timing-cell red">红</div>
+        </div>
+      </div>
+      <div class="timing-axis">
+        <div></div>
+        <div class="axis-track">
+          <div class="axis-tick">0s</div>
+          <div class="axis-tick">4s</div>
+          <div class="axis-tick">8s</div>
+          <div class="axis-tick">12s</div>
+          <div class="axis-tick">16s</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== §6 交互式演示 ============== -->
+  <section>
+    <div class="sec-num">06</div>
+    <h2><span class="dot"></span>可视化演示</h2>
+    <p class="lead">下面是一个跑在浏览器里的简化模拟，能看到灯、车、信号量数值同步变化。</p>
+
+    <div class="sim">
+      <div class="sim-controls">
+        <button class="sim-btn" id="btnStart">▶ 开始</button>
+        <button class="sim-btn secondary" id="btnPause">⏸ 暂停</button>
+        <button class="sim-btn secondary" id="btnReset">↻ 重置</button>
+        <span class="sim-status" id="statusText">就绪 · 绿 4s / 绿 4s 循环</span>
+      </div>
+
+      <div class="sim-svg-wrap">
+        <svg width="100%" viewBox="0 0 600 280" id="simSvg">
+          <!-- 背景 -->
+          <rect x="0" y="0" width="600" height="280" fill="#2c3038"/>
+
+          <!-- 南北道路 -->
+          <rect x="240" y="0" width="120" height="280" fill="#3a4256"/>
+          <!-- 东西道路 -->
+          <rect x="0" y="100" width="600" height="80" fill="#3a4256"/>
+          <!-- 中央 -->
+          <rect x="240" y="100" width="120" height="80" fill="#4a5266"/>
+
+          <!-- 中央双黄线 -->
+          <line x1="300" y1="0" x2="300" y2="100" stroke="#e6b34a" stroke-width="1" stroke-dasharray="4 4"/>
+          <line x1="300" y1="180" x2="300" y2="280" stroke="#e6b34a" stroke-width="1" stroke-dasharray="4 4"/>
+          <line x1="0" y1="140" x2="240" y2="140" stroke="#e6b34a" stroke-width="1" stroke-dasharray="4 4"/>
+          <line x1="360" y1="140" x2="600" y2="140" stroke="#e6b34a" stroke-width="1" stroke-dasharray="4 4"/>
+
+          <!-- 信号灯（南北组）：左上方 (180°) -->
+          <g id="lightNS_S">
+            <circle cx="220" cy="80" r="14" fill="#1a1d22" stroke="#444"/>
+            <circle id="dotNS_S_green" cx="220" cy="80" r="9" fill="#2f6f5e"/>
+          </g>
+          <!-- 信号灯（南北组）：右上方 -->
+          <g id="lightNS_N">
+            <circle cx="380" cy="80" r="14" fill="#1a1d22" stroke="#444"/>
+            <circle id="dotNS_N_green" cx="380" cy="80" r="9" fill="#2f6f5e"/>
+          </g>
+          <!-- 信号灯（东西组）：上方 -->
+          <g id="lightEW_W">
+            <circle cx="220" cy="200" r="14" fill="#1a1d22" stroke="#444"/>
+            <circle id="dotEW_W_red" cx="220" cy="200" r="9" fill="#b06367"/>
+          </g>
+          <!-- 信号灯（东西组）：右方 -->
+          <g id="lightEW_E">
+            <circle cx="380" cy="200" r="14" fill="#1a1d22" stroke="#444"/>
+            <circle id="dotEW_E_red" cx="380" cy="200" r="9" fill="#b06367"/>
+          </g>
+
+          <!-- 车辆槽位：南北（2 个，每方向 1） -->
+          <g id="carsNSGroup">
+            <!-- 由 JS 动态填充 -->
+          </g>
+          <!-- 车辆槽位：东西 -->
+          <g id="carsEWGroup">
+            <!-- 由 JS 动态填充 -->
+          </g>
+
+          <!-- 信号量面板 -->
+          <g transform="translate(440, 30)">
+            <rect x="0" y="0" width="140" height="68" rx="6" fill="#1a1d22" stroke="#444"/>
+            <text x="10" y="18" font-family="JetBrains Mono" font-size="10" fill="#7c7a72">SEMAPHORE</text>
+            <text x="10" y="38" font-family="JetBrains Mono" font-size="11" fill="#7fb89a">ns_go = <tspan id="semNSVal" fill="#e6e1d7">1</tspan></text>
+            <text x="10" y="56" font-family="JetBrains Mono" font-size="11" fill="#e2b87b">ew_go = <tspan id="semEWVal" fill="#e6e1d7">0</tspan></text>
+          </g>
+
+          <!-- 当前状态 -->
+          <text id="stateLabel" x="20" y="30" font-family="Outfit" font-size="14" fill="#e6e1d7" font-weight="600">南北【绿】 东西【红】</text>
+          <text id="timerLabel" x="20" y="52" font-family="JetBrains Mono" font-size="11" fill="#7c7a72">倒计时 4.0s</text>
+        </svg>
+      </div>
+
+      <div class="sim-log" id="logArea">[系统] 等待开始...</div>
+    </div>
+  </section>
+
+  <!-- ============== §7 关键要点 ============== -->
+  <section>
+    <div class="sec-num">07</div>
+    <h2><span class="dot"></span>核心要点</h2>
+    <p class="lead">回头看一遍这次实验到底在讲什么。</p>
+
+    <div class="points">
+      <div class="point">
+        <div class="point-num">1</div>
+        <div class="point-body">
+          <h4>临界资源 = 路口</h4>
+          <p>任何时刻只能有一个方向占用。如果不限制，两组车会"撞"在一起——这就是<b>数据竞争</b>。</p>
+        </div>
+      </div>
+      <div class="point">
+        <div class="point-num">2</div>
+        <div class="point-body">
+          <h4>互斥靠信号量实现</h4>
+          <p>两组信号量 ns_go / ew_go 总令牌数恒为 1。一组持有令牌时，另一组必须阻塞。</p>
+        </div>
+      </div>
+      <div class="point">
+        <div class="point-num">3</div>
+        <div class="point-body">
+          <h4>P/V 是原子操作</h4>
+          <p>这是 OS 提供的保证——acquire 和 release 中途不会切换到别的线程。否则可能两个线程都"以为"自己拿到了令牌。</p>
+        </div>
+      </div>
+      <div class="point">
+        <div class="point-num">4</div>
+        <div class="point-body">
+          <h4>同步靠信号灯主控线程</h4>
+          <p>信号灯以固定节奏切换，是整个系统的"节拍器"。这跟现实红绿灯由<b>单片机定时器</b>触发是一回事。</p>
+        </div>
+      </div>
+      <div class="point">
+        <div class="point-num">5</div>
+        <div class="point-body">
+          <h4>车是"被动"的</h4>
+          <p>车辆线程不参与决策，只负责"申请→通过→再来"。控制权在信号灯主控。这是经典的<b>控制者-工作者</b>模式。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== §8 思考题 ============== -->
+  <section>
+    <div class="sec-num">08</div>
+    <h2><span class="dot"></span>动手前可以想想</h2>
+
+    <div class="exercise">
+      <h4><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>进阶问题 1：黄灯怎么加？</h4>
+      <p>现实里切换前会有 3 秒黄灯全速变为"即将清场"。提示：再加一组信号量作为"黄灯阶段"，或者用一个 state 变量记录 3 种状态。</p>
+    </div>
+
+    <div class="exercise">
+      <h4><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>进阶问题 2：左转相位</h4>
+      <p>真实路口左转需要单独的相位（直行绿+左转红、左转绿+直行红）。这意味着不再只有"南北 vs 东西"两组，而是 4 个相位。你能改成 4 阶段循环吗？</p>
+    </div>
+
+    <div class="exercise">
+      <h4><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 12l4-4 4 4 6-6"/></svg>进阶问题 3：自适应时长</h4>
+      <p>真实系统会根据车流密度动态调整绿灯时长。你可以加一个"车流计数器"，哪边车多就给哪边更长的绿。</p>
+    </div>
+
+    <div class="exercise">
+      <h4><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>进阶问题 4：行人按钮</h4>
+      <p>加入"行人请求"：行人按下按钮后，下一个切换周期里强制加一段"行人过街"相位。提示：用 Condition 或 Event 让信号灯可以被打断。</p>
+    </div>
+  </section>
+
+  <footer>
+    实验一 · 进程同步与信号量 · 十字路口信号灯管理 · 仅作教学示例
+  </footer>
+</div>
+
+<script>
+// ============== 交互式演示逻辑 ==============
+const GREEN_TIME = 4.0;
+const state = {
+  running: false,
+  paused: false,
+  ns_go: 1,
+  ew_go: 0,
+  phase: 'NS',           // 'NS' 或 'EW'
+  timer: GREEN_TIME,
+  cars: { NS: [], EW: [] }
+};
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// 初始化：放几辆车在等待队列
+function initCars() {
+  const nsG = document.getElementById('carsNSGroup');
+  const ewG = document.getElementById('carsEWGroup');
+  nsG.innerHTML = '';
+  ewG.innerHTML = '';
+  state.cars.NS = [];
+  state.cars.EW = [];
+  // 南北车槽位：从南北两个方向过来
+  for (let i = 0; i < 3; i++) {
+    const fromSouth = i % 2 === 0;
+    const car = createCar('NS', i+1, fromSouth);
+    state.cars.NS.push(car);
+    nsG.appendChild(car.el);
+  }
+  for (let i = 0; i < 3; i++) {
+    const fromWest = i % 2 === 0;
+    const car = createCar('EW', i+1, fromWest);
+    state.cars.EW.push(car);
+    ewG.appendChild(car.el);
+  }
+  layoutCars();
+}
+
+function createCar(group, id, fromLeftOrSouth) {
+  const g = document.createElementNS(SVG_NS, 'g');
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('width', '18');
+  rect.setAttribute('height', '12');
+  rect.setAttribute('rx', '3');
+  rect.setAttribute('fill', group === 'NS' ? '#7fb89a' : '#e2b87b');
+  g.appendChild(rect);
+  return { el: g, rect, id, fromLeftOrSouth, passed: false };
+}
+
+function layoutCars() {
+  // 南北车：显示在道路外侧等待
+  state.cars.NS.forEach((car, idx) => {
+    if (car.passed) {
+      car.el.setAttribute('opacity', '0.3');
+      car.el.setAttribute('transform', `translate(280, ${idx * 20 + 20})`);
+    } else {
+      car.el.setAttribute('opacity', '1');
+      // 等待位置：在路口上下两侧排队
+      const baseY = idx * 18;
+      car.el.setAttribute('transform', `translate(285, ${baseY + 10})`);
+    }
+  });
+  // 东西车
+  state.cars.EW.forEach((car, idx) => {
+    if (car.passed) {
+      car.el.setAttribute('opacity', '0.3');
+      car.el.setAttribute('transform', `translate(${idx * 22 + 20}, 130)`);
+    } else {
+      car.el.setAttribute('opacity', '1');
+      const baseX = idx * 20;
+      car.el.setAttribute('transform', `translate(${baseX + 20}, 130)`);
+    }
+  });
+}
+
+// 更新显示
+function updateLights() {
+  const nsGreen = document.getElementById('dotNS_S_green');
+  const nsN_green = document.getElementById('dotNS_N_green');
+  const ewW_red = document.getElementById('dotEW_W_red');
+  const ewE_red = document.getElementById('dotEW_E_red');
+  if (state.phase === 'NS') {
+    nsGreen.setAttribute('fill', '#2f6f5e');
+    nsN_green.setAttribute('fill', '#2f6f5e');
+    ewW_red.setAttribute('fill', '#b06367');
+    ewE_red.setAttribute('fill', '#b06367');
+    document.getElementById('stateLabel').textContent = '南北【绿】 东西【红】';
+  } else {
+    nsGreen.setAttribute('fill', '#444');
+    nsN_green.setAttribute('fill', '#444');
+    ewW_red.setAttribute('fill', '#4b8c63');
+    ewE_red.setAttribute('fill', '#4b8c63');
+    document.getElementById('stateLabel').textContent = '南北【红】 东西【绿】';
+  }
+  document.getElementById('semNSVal').textContent = state.ns_go;
+  document.getElementById('semEWVal').textContent = state.ew_go;
+  document.getElementById('timerLabel').textContent = `倒计时 ${state.timer.toFixed(1)}s`;
+}
+
+function log(cls, text) {
+  const area = document.getElementById('logArea');
+  const ts = new Date().toLocaleTimeString();
+  area.innerHTML += `<div><span class="${cls}">[${ts}]</span> ${text}</div>`;
+  area.scrollTop = area.scrollHeight;
+}
+
+// 仿真 tick
+let lastTick = null;
+function tick() {
+  if (!state.running || state.paused) {
+    lastTick = null;
+    requestAnimationFrame(tick);
+    return;
+  }
+  const now = performance.now();
+  if (lastTick === null) lastTick = now;
+  const dt = (now - lastTick) / 1000;
+  lastTick = now;
+
+  state.timer -= dt;
+
+  // 在 NS 阶段尝试让 NS 车通过
+  if (state.phase === 'NS' && state.ns_go > 0) {
+    const nextCar = state.cars.NS.find(c => !c.passed);
+    if (nextCar) {
+      state.ns_go -= 1;
+      nextCar.passed = true;
+      log('ns', `车 #${nextCar.id.toString().padStart(2,'0')} 申请 ns_go → 通过路口`);
+      layoutCars();
+    }
+  }
+  // 在 EW 阶段
+  if (state.phase === 'EW' && state.ew_go > 0) {
+    const nextCar = state.cars.EW.find(c => !c.passed);
+    if (nextCar) {
+      state.ew_go -= 1;
+      nextCar.passed = true;
+      log('ew', `车 #${nextCar.id.toString().padStart(2,'0')} 申请 ew_go → 通过路口`);
+      layoutCars();
+    }
+  }
+
+  // 切换相位
+  if (state.timer <= 0) {
+    if (state.phase === 'NS') {
+      // 切换：NS → EW
+      if (state.ns_go > 0) {
+        // 还没车用掉，令牌转移
+        state.ns_go -= 1;
+      }
+      state.ew_go += 1;
+      log('light', `切换: NS 收令 +1 → EW 发令 (ns_go=${state.ns_go}, ew_go=${state.ew_go})`);
+      state.phase = 'EW';
+    } else {
+      if (state.ew_go > 0) {
+        state.ew_go -= 1;
+      }
+      state.ns_go += 1;
+      log('light', `切换: EW 收令 +1 → NS 发令 (ns_go=${state.ns_go}, ew_go=${state.ew_go})`);
+      state.phase = 'NS';
+    }
+    state.timer = GREEN_TIME;
+  }
+
+  updateLights();
+  requestAnimationFrame(tick);
+}
+
+document.getElementById('btnStart').addEventListener('click', () => {
+  if (!state.running) {
+    state.running = true;
+    state.paused = false;
+    document.getElementById('logArea').innerHTML = '[系统] 开始仿真...<br>';
+    log('light', `初始状态: ns_go=1, ew_go=0, 南北绿`);
+    initCars();
+    updateLights();
+  }
+});
+document.getElementById('btnPause').addEventListener('click', () => {
+  state.paused = !state.paused;
+  document.getElementById('btnPause').textContent = state.paused ? '▶ 继续' : '⏸ 暂停';
+});
+document.getElementById('btnReset').addEventListener('click', () => {
+  state.running = false;
+  state.paused = false;
+  state.ns_go = 1;
+  state.ew_go = 0;
+  state.phase = 'NS';
+  state.timer = GREEN_TIME;
+  document.getElementById('logArea').innerHTML = '[系统] 已重置<br>';
+  document.getElementById('btnPause').textContent = '⏸ 暂停';
+  initCars();
+  updateLights();
+});
+
+// 启动循环
+initCars();
+updateLights();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
